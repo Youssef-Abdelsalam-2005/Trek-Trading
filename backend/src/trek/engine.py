@@ -10,7 +10,7 @@ from trek.config import database_url
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [engine] %(message)s")
 log = logging.getLogger(__name__)
 
-OHLCV_UPDATE_INTERVAL = 3600
+OHLCV_UPDATE_INTERVAL = 14400  # 4h — Birdeye free tier has 30k CU/month budget
 
 
 async def _ohlcv_update_loop(stop: asyncio.Event) -> None:
