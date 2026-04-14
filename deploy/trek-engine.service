@@ -1,0 +1,34 @@
+[Unit]
+Description=Trek Trading Execution Engine
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=trek-engine
+Group=trek-engine
+SupplementaryGroups=trek-shared
+WorkingDirectory=/opt/trek
+ExecStart=/opt/trek/.venv/bin/python -m trek.engine
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+EnvironmentFile=/etc/trek/engine.env
+
+ProtectSystem=strict
+ProtectHome=true
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+MemoryDenyWriteExecute=true
+LockPersonality=true
+ReadWritePaths=/opt/trek/logs
+
+[Install]
+WantedBy=multi-user.target
