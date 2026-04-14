@@ -20,7 +20,7 @@ def upgrade() -> None:
     op.create_table(
         "ohlcv_data",
         sa.Column("timestamp", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("pair", sa.String(32), nullable=False, server_default="SOL/USDC"),
+        sa.Column("pair", sa.String(32), nullable=False, server_default="SOL/USD"),
         sa.Column("resolution", sa.String(16), nullable=False),
         sa.Column("open", sa.Float, nullable=False),
         sa.Column("high", sa.Float, nullable=False),
@@ -28,7 +28,6 @@ def upgrade() -> None:
         sa.Column("close", sa.Float, nullable=False),
         sa.Column("volume", sa.Float, nullable=False),
         sa.PrimaryKeyConstraint("timestamp", "pair", "resolution"),
-        sa.UniqueConstraint("timestamp", "pair", "resolution", name="uq_ohlcv_time_pair_res"),
     )
 
     op.execute(

@@ -96,7 +96,7 @@ DB_URL = os.environ.get(
 
 def _db_available() -> bool:
     try:
-        asyncio.get_event_loop().run_until_complete(asyncpg.connect(DB_URL))
+        asyncio.run(asyncpg.connect(DB_URL))
         return True
     except Exception:
         return False
@@ -129,7 +129,7 @@ class TestUpsertIdempotency:
         assert count1 == 1
 
         count2 = await _upsert_batch(pool, [row])
-        assert count2 == 1
+        assert count2 == 0
 
         async with pool.acquire() as conn:
             result = await conn.fetchval(

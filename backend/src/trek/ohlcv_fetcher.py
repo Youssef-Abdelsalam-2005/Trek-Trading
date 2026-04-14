@@ -1,4 +1,4 @@
-"""OHLCV data fetcher — pulls SOL/USDC candles from CoinGecko and stores them in TimescaleDB.
+"""OHLCV data fetcher — pulls SOL/USD candles from CoinGecko and stores them in TimescaleDB.
 
 CoinGecko's /coins/{id}/market_chart/range endpoint returns price + volume data
 points at granularity determined by the requested range:
@@ -9,6 +9,10 @@ points at granularity determined by the requested range:
 We construct OHLCV candles from adjacent price points. The open/high/low/close
 values are derived from the same price point (no intra-period aggregation),
 which is adequate for vectorbt backtesting that primarily uses close prices.
+
+Data source: CoinGecko global average SOL/USD. This is NOT SOL/USDC DEX data.
+For most market conditions the difference is negligible, but during stablecoin
+depeg events (e.g. USDC March 2023) the two can diverge materially.
 """
 
 from __future__ import annotations
@@ -23,6 +27,8 @@ from datetime import datetime, timezone
 import asyncpg
 import httpx
 
+from trek.config import database_url
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [ohlcv] %(levelname)s %(message)s",
@@ -32,7 +38,7 @@ log = logging.getLogger(__name__)
 COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 COIN_ID = "solana"
 VS_CURRENCY = "usd"
-DEFAULT_PAIR = "SOL/USDC"
+DEFAULT_PAIR = "SOL/USD"
 
 UPSERT_SQL = """
 INSERT INTO ohlcv_data (timestamp, pair, resolution, open, high, low, close, volume)
@@ -47,13 +53,7 @@ WHERE pair = $1 AND resolution = $2
 
 MAX_CHUNK_DAYS = 89
 RATE_LIMIT_DELAY = 2.1
-
-
-def _database_url() -> str:
-    url = os.environ.get("DATABASE_URL", "")
-    if url.startswith("postgresql+asyncpg://"):
-        url = url.replace("postgresql+asyncpg://", "postgresql://", 1)
-    return url
+MAX_RETRIES = 3
 
 
 def _coingecko_headers() -> dict[str, str]:
@@ -73,15 +73,39 @@ async def _fetch_market_chart_range(
         "from": str(from_ts),
         "to": str(to_ts),
     }
-    resp = await client.get(
-        f"{COINGECKO_BASE}/coins/{COIN_ID}/market_chart/range",
-        params=params,
-        headers=_coingecko_headers(),
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    return data.get("prices", []), data.get("total_volumes", [])
+    last_exc: Exception | None = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            resp = await client.get(
+                f"{COINGECKO_BASE}/coins/{COIN_ID}/market_chart/range",
+                params=params,
+                headers=_coingecko_headers(),
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("prices", []), data.get("total_volumes", [])
+        except httpx.HTTPStatusError as exc:
+            last_exc = exc
+            if exc.response.status_code in (429, 500, 502, 503, 504):
+                delay = 2 ** (attempt + 1)
+                log.warning(
+                    "CoinGecko %d for %d→%d, retry %d/%d in %ds",
+                    exc.response.status_code, from_ts, to_ts,
+                    attempt + 1, MAX_RETRIES, delay,
+                )
+                await asyncio.sleep(delay)
+            else:
+                raise
+        except httpx.TransportError as exc:
+            last_exc = exc
+            delay = 2 ** (attempt + 1)
+            log.warning(
+                "CoinGecko transport error for %d→%d, retry %d/%d in %ds: %s",
+                from_ts, to_ts, attempt + 1, MAX_RETRIES, delay, exc,
+            )
+            await asyncio.sleep(delay)
+    raise last_exc  # type: ignore[misc]
 
 
 def _build_candles(
@@ -112,12 +136,23 @@ def _build_candles(
     return rows
 
 
+UPSERT_RETURNING_SQL = """
+INSERT INTO ohlcv_data (timestamp, pair, resolution, open, high, low, close, volume)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (timestamp, pair, resolution) DO NOTHING
+RETURNING 1
+"""
+
+
 async def _upsert_batch(pool: asyncpg.Pool, rows: list[tuple]) -> int:
     if not rows:
         return 0
+    inserted = 0
     async with pool.acquire() as conn:
-        await conn.executemany(UPSERT_SQL, rows)
-    return len(rows)
+        for row in rows:
+            result = await conn.fetch(UPSERT_RETURNING_SQL, *row)
+            inserted += len(result)
+    return inserted
 
 
 async def backfill(
@@ -146,9 +181,21 @@ async def backfill(
             datetime.fromtimestamp(chunk_end, tz=timezone.utc).isoformat(),
         )
 
-        prices, volumes = await _fetch_market_chart_range(
-            client, chunk_start, chunk_end
-        )
+        try:
+            prices, volumes = await _fetch_market_chart_range(
+                client, chunk_start, chunk_end
+            )
+        except Exception:
+            log.exception(
+                "Failed to fetch chunk %s → %s after %d retries — gap in data",
+                datetime.fromtimestamp(chunk_start, tz=timezone.utc).isoformat(),
+                datetime.fromtimestamp(chunk_end, tz=timezone.utc).isoformat(),
+                MAX_RETRIES,
+            )
+            chunk_start = chunk_end
+            await asyncio.sleep(RATE_LIMIT_DELAY)
+            continue
+
         rows = _build_candles(prices, volumes, resolution)
         inserted = await _upsert_batch(pool, rows)
         total += inserted
@@ -191,7 +238,7 @@ async def fetch_latest(
 
 
 async def run_backfill(days: int, resolution: str) -> None:
-    dsn = _database_url()
+    dsn = database_url()
     if not dsn:
         log.error("DATABASE_URL not set")
         return
@@ -206,7 +253,7 @@ async def run_backfill(days: int, resolution: str) -> None:
 
 
 async def run_update(resolution: str) -> None:
-    dsn = _database_url()
+    dsn = database_url()
     if not dsn:
         log.error("DATABASE_URL not set")
         return
