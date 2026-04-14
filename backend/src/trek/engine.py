@@ -37,14 +37,18 @@ class Signal:
 class TradeResult:
     direction: str
     pair: str
-    price: float
-    quantity: float
-    value_usd: float
-    fee_usd: float
-    slippage_bps: float
-    tx_signature: str | None
+    status: str
+    input_amount: float
+    quoted_price: float
     executed_at: datetime
-    metadata: dict[str, Any] | None = None
+    output_amount: float | None = None
+    fill_price: float | None = None
+    price_impact_bps: float | None = None
+    fee_usd: float | None = None
+    slippage_bps: float | None = None
+    jito_tip_lamports: int | None = None
+    tx_signature: str | None = None
+    failure_reason: str | None = None
 
 
 async def generate_signal(
@@ -105,13 +109,19 @@ LIMIT 1;
 
 INSERT_TRADE_SQL = """
 INSERT INTO trade (
-    id, variation_id, source, direction, pair,
-    price, quantity, value_usd, fee_usd, slippage_bps,
-    tx_signature, executed_at, metadata, created_at, updated_at
+    id, variation_id, live_deployment_id,
+    source, direction, status, pair,
+    input_amount, output_amount, quoted_price, fill_price,
+    price_impact_bps, fee_usd, slippage_bps, jito_tip_lamports,
+    tx_signature, failure_reason, executed_at,
+    created_at, updated_at
 ) VALUES (
-    $1, $2, 'live', $3, $4,
-    $5, $6, $7, $8, $9,
-    $10, $11, $12, now(), now()
+    $1, $2, $3,
+    'live', $4, $5, $6,
+    $7, $8, $9, $10,
+    $11, $12, $13, $14,
+    $15, $16, $17,
+    now(), now()
 );
 """
 
@@ -357,11 +367,12 @@ class ExecutionEngine:
             sl.last_signal_at = now
             return
 
-        pnl_usd = result.value_usd if result.direction == "sell" else -result.value_usd
-        pnl_sol = result.quantity if result.direction == "sell" else -result.quantity
+        effective_price = result.fill_price if result.fill_price is not None else result.quoted_price
+        value_usd = effective_price * result.input_amount
+        pnl_usd = value_usd if result.direction == "sell" else -value_usd
+        pnl_sol = result.input_amount if result.direction == "sell" else -result.input_amount
 
         trade_id = uuid.uuid4()
-        trade_metadata = json.dumps(result.metadata) if result.metadata else None
 
         async with self._pool.acquire() as conn:
             async with conn.transaction():
@@ -369,16 +380,21 @@ class ExecutionEngine:
                     INSERT_TRADE_SQL,
                     trade_id,
                     sl.variation_id,
+                    sl.deployment_id,
                     result.direction,
+                    result.status,
                     result.pair,
-                    result.price,
-                    result.quantity,
-                    result.value_usd,
+                    result.input_amount,
+                    result.output_amount,
+                    result.quoted_price,
+                    result.fill_price,
+                    result.price_impact_bps,
                     result.fee_usd,
                     result.slippage_bps,
+                    result.jito_tip_lamports,
                     result.tx_signature,
+                    result.failure_reason,
                     result.executed_at,
-                    trade_metadata,
                 )
                 await conn.execute(
                     UPDATE_DEPLOYMENT_AFTER_TRADE_SQL,
@@ -391,11 +407,12 @@ class ExecutionEngine:
         sl.last_signal_at = now
 
         log.info(
-            "Trade executed: deployment=%s direction=%s price=%.4f qty=%.6f pnl_usd=%.2f tx=%s",
+            "Trade executed: deployment=%s direction=%s quoted=%.4f fill=%s input=%.6f pnl_usd=%.2f tx=%s",
             sl.deployment_id,
             result.direction,
-            result.price,
-            result.quantity,
+            result.quoted_price,
+            f"{result.fill_price:.4f}" if result.fill_price is not None else "n/a",
+            result.input_amount,
             pnl_usd,
             result.tx_signature or "n/a",
         )
@@ -411,7 +428,8 @@ class ExecutionEngine:
                         "variation_id": str(sl.variation_id),
                         "trade_id": str(trade_id),
                         "direction": result.direction,
-                        "price": result.price,
+                        "quoted_price": result.quoted_price,
+                        "fill_price": result.fill_price,
                     }),
                 )
         except Exception:
