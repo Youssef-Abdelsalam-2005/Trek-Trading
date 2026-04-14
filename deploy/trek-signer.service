@@ -1,0 +1,50 @@
+# Socket permissions: trek-signer:trek-shared 0660
+# trek-engine user must be in trek-shared group to reach the socket.
+# trek-api user must NOT be in trek-shared group.
+
+[Unit]
+Description=Trek Trading Wallet Signer
+After=network.target
+
+[Service]
+Type=simple
+User=trek-signer
+Group=trek-signer
+SupplementaryGroups=trek-shared
+WorkingDirectory=/opt/trek
+ExecStart=/opt/trek/.venv/bin/python -m trek.signer
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=10
+EnvironmentFile=/etc/trek-signer/signer.env
+RuntimeDirectory=trek-signer
+
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/
+ReadWritePaths=/run/trek-signer
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectClock=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectHostname=true
+CapabilityBoundingSet=
+SystemCallFilter=@system-service
+SystemCallFilter=~@resources @privileged
+SystemCallArchitectures=native
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RemoveIPC=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
