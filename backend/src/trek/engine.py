@@ -1,10 +1,11 @@
 import asyncio
 import logging
-import os
 import signal
 
 import asyncpg
 import httpx
+
+from trek.config import database_url
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [engine] %(message)s")
 log = logging.getLogger(__name__)
@@ -12,17 +13,10 @@ log = logging.getLogger(__name__)
 OHLCV_UPDATE_INTERVAL = 3600
 
 
-def _database_url() -> str:
-    url = os.environ.get("DATABASE_URL", "")
-    if url.startswith("postgresql+asyncpg://"):
-        url = url.replace("postgresql+asyncpg://", "postgresql://", 1)
-    return url
-
-
 async def _ohlcv_update_loop(stop: asyncio.Event) -> None:
     from trek.ohlcv_fetcher import fetch_latest
 
-    dsn = _database_url()
+    dsn = database_url()
     if not dsn:
         log.error("DATABASE_URL not set — OHLCV updates disabled")
         return

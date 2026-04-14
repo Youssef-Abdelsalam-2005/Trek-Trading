@@ -24,6 +24,7 @@ from trek.ohlcv_fetcher import (
     DEFAULT_PAIR,
     UPSERT_SQL,
     _build_candles,
+    _fetch_market_chart_range,
     _upsert_batch,
     backfill,
     fetch_latest,
@@ -96,7 +97,7 @@ DB_URL = os.environ.get(
 
 def _db_available() -> bool:
     try:
-        asyncio.get_event_loop().run_until_complete(asyncpg.connect(DB_URL))
+        asyncio.run(asyncpg.connect(DB_URL))
         return True
     except Exception:
         return False
@@ -129,7 +130,7 @@ class TestUpsertIdempotency:
         assert count1 == 1
 
         count2 = await _upsert_batch(pool, [row])
-        assert count2 == 1
+        assert count2 == 0
 
         async with pool.acquire() as conn:
             result = await conn.fetchval(
@@ -205,3 +206,70 @@ class TestBackfillAndUpdate:
             count = await fetch_latest(pool, mock_client, "test_1h")
             assert count == 100
             mock_bf.assert_called_once()
+
+
+class TestHttpRetry:
+    @pytest.mark.asyncio
+    async def test_retries_on_429_then_succeeds(self):
+        error_resp = httpx.Response(429, request=httpx.Request("GET", "http://test"))
+        ok_resp = AsyncMock()
+        ok_resp.raise_for_status = lambda: None
+        ok_resp.json.return_value = {"prices": SAMPLE_PRICES, "total_volumes": SAMPLE_VOLUMES}
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.get.side_effect = [
+            httpx.HTTPStatusError("rate limited", request=error_resp.request, response=error_resp),
+            ok_resp,
+        ]
+
+        with patch("trek.ohlcv_fetcher.asyncio.sleep", new_callable=AsyncMock):
+            prices, volumes = await _fetch_market_chart_range(client, 1000, 2000)
+
+        assert len(prices) == 4
+        assert client.get.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_retries_on_500_then_succeeds(self):
+        error_resp = httpx.Response(500, request=httpx.Request("GET", "http://test"))
+        ok_resp = AsyncMock()
+        ok_resp.raise_for_status = lambda: None
+        ok_resp.json.return_value = {"prices": SAMPLE_PRICES, "total_volumes": SAMPLE_VOLUMES}
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.get.side_effect = [
+            httpx.HTTPStatusError("server error", request=error_resp.request, response=error_resp),
+            ok_resp,
+        ]
+
+        with patch("trek.ohlcv_fetcher.asyncio.sleep", new_callable=AsyncMock):
+            prices, volumes = await _fetch_market_chart_range(client, 1000, 2000)
+
+        assert len(prices) == 4
+        assert client.get.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_raises_after_max_retries(self):
+        error_resp = httpx.Response(429, request=httpx.Request("GET", "http://test"))
+        exc = httpx.HTTPStatusError("rate limited", request=error_resp.request, response=error_resp)
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.get.side_effect = [exc, exc, exc]
+
+        with patch("trek.ohlcv_fetcher.asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(httpx.HTTPStatusError):
+                await _fetch_market_chart_range(client, 1000, 2000)
+
+        assert client.get.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_does_not_retry_on_4xx(self):
+        error_resp = httpx.Response(404, request=httpx.Request("GET", "http://test"))
+        exc = httpx.HTTPStatusError("not found", request=error_resp.request, response=error_resp)
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.get.side_effect = exc
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await _fetch_market_chart_range(client, 1000, 2000)
+
+        assert client.get.call_count == 1

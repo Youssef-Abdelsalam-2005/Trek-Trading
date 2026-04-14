@@ -194,6 +194,6 @@ class TestOHLCVSchema:
             close=103.0,
             volume=50000.0,
         )
-        assert dp.pair == "SOL/USDC"
+        assert dp.pair == "SOL/USD"
         data = dp.model_dump()
         assert "timestamp" in data

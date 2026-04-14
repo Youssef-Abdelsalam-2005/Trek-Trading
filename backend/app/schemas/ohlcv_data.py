@@ -7,7 +7,7 @@ from backend.app.schemas.base import BaseSchema
 
 class OHLCVDataPoint(BaseSchema):
     timestamp: datetime
-    pair: str = Field(default="SOL/USDC", max_length=32)
+    pair: str = Field(default="SOL/USD", max_length=32)
     resolution: str = Field(..., max_length=16)
     open: float
     high: float
