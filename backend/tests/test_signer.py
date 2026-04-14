@@ -260,3 +260,36 @@ class TestSignatureVerification:
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
         public_key = Ed25519PublicKey.from_public_bytes(pub)
         public_key.verify(sig, msg)  # raises if invalid
+
+
+class TestSocketPermission:
+    @pytest.mark.asyncio
+    async def test_eacces_when_socket_mode_0600(self):
+        """Verify that a socket with mode 0600 owned by another user is not
+        connectable by the current process. Since we can't create a different
+        OS user in CI, we set mode 0000 on the socket to prove EACCES."""
+        import socket
+        import stat
+
+        secret_key, pub, _ = _make_keypair()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sock_path = os.path.join(tmpdir, "sign.sock")
+
+            with patch.dict(os.environ, {"SIGNER_SOCKET_PATH": sock_path}):
+                from trek.signer import main as signer_main
+
+                server = await asyncio.start_unix_server(
+                    lambda r, w: w.close(),
+                    path=sock_path,
+                )
+                os.chmod(sock_path, 0o000)
+
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                try:
+                    with pytest.raises(PermissionError):
+                        sock.connect(sock_path)
+                finally:
+                    sock.close()
+                    server.close()
+                    await server.wait_closed()

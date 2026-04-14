@@ -26,11 +26,25 @@ ReadOnlyPaths=/
 ReadWritePaths=/run/trek-signer
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
+ProtectClock=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectHostname=true
 CapabilityBoundingSet=
 SystemCallFilter=@system-service
+SystemCallFilter=~@resources @privileged
+SystemCallArchitectures=native
 RestrictNamespaces=true
 RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX
+LockPersonality=true
 MemoryDenyWriteExecute=true
+RemoveIPC=true
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target
