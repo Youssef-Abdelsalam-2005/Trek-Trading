@@ -46,6 +46,8 @@ class PaperTradingSessionManager:
         self.rng = rng or random.Random()
         self._capital = session.initial_capital
         self._position: float = 0.0
+        self._last_sortino: float = 0.0
+        self._last_max_dd: float = 0.0
 
     def restore_state(self, capital: float, position: float) -> None:
         self._capital = capital
