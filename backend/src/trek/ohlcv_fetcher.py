@@ -1,18 +1,11 @@
-"""OHLCV data fetcher — pulls SOL/USD candles from CoinGecko and stores them in TimescaleDB.
+"""OHLCV data fetcher — pulls SOL/USDC candles from Birdeye and stores them in TimescaleDB.
 
-CoinGecko's /coins/{id}/market_chart/range endpoint returns price + volume data
-points at granularity determined by the requested range:
-  - range ≤ 1 day  → ~5-minute intervals
-  - range ≤ 90 days → hourly intervals
-  - range > 90 days → daily intervals
+Birdeye's /defi/ohlcv endpoint returns actual Solana DEX OHLCV candles for
+a given token, aggregated across on-chain liquidity pools. This gives us
+real SOL/USDC trading data from Solana DEXes (Raydium, Orca, etc.), which
+matches the pairs the system executes against.
 
-We construct OHLCV candles from adjacent price points. The open/high/low/close
-values are derived from the same price point (no intra-period aggregation),
-which is adequate for vectorbt backtesting that primarily uses close prices.
-
-Data source: CoinGecko global average SOL/USD. This is NOT SOL/USDC DEX data.
-For most market conditions the difference is negligible, but during stablecoin
-depeg events (e.g. USDC March 2023) the two can diverge materially.
+Requires BIRDEYE_API_KEY environment variable.
 """
 
 from __future__ import annotations
@@ -35,10 +28,14 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-COINGECKO_BASE = "https://api.coingecko.com/api/v3"
-COIN_ID = "solana"
-VS_CURRENCY = "usd"
-DEFAULT_PAIR = "SOL/USD"
+BIRDEYE_BASE = "https://public-api.birdeye.so"
+SOL_MINT = "So11111111111111111111111111111111111111112"
+DEFAULT_PAIR = "SOL/USDC"
+
+RESOLUTION_MAP = {
+    "1m": "1m",
+    "1h": "1H",
+}
 
 UPSERT_SQL = """
 INSERT INTO ohlcv_data (timestamp, pair, resolution, open, high, low, close, volume)
@@ -46,51 +43,69 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (timestamp, pair, resolution) DO NOTHING
 """
 
+UPSERT_RETURNING_SQL = """
+INSERT INTO ohlcv_data (timestamp, pair, resolution, open, high, low, close, volume)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (timestamp, pair, resolution) DO NOTHING
+RETURNING 1
+"""
+
 LATEST_TIMESTAMP_SQL = """
 SELECT MAX(timestamp) FROM ohlcv_data
 WHERE pair = $1 AND resolution = $2
 """
 
-MAX_CHUNK_DAYS = 89
-RATE_LIMIT_DELAY = 2.1
+MAX_CHUNK_SECONDS = 89 * 86400
+RATE_LIMIT_DELAY = 1.0
 MAX_RETRIES = 3
 
 
-def _coingecko_headers() -> dict[str, str]:
-    key = os.environ.get("COINGECKO_API_KEY", "")
-    if key:
-        return {"x-cg-demo-api-key": key}
-    return {}
+def _birdeye_headers() -> dict[str, str]:
+    key = os.environ.get("BIRDEYE_API_KEY", "")
+    if not key:
+        raise RuntimeError("BIRDEYE_API_KEY environment variable is required")
+    return {
+        "X-API-KEY": key,
+        "x-chain": "solana",
+    }
 
 
-async def _fetch_market_chart_range(
+async def _fetch_ohlcv(
     client: httpx.AsyncClient,
     from_ts: int,
     to_ts: int,
-) -> tuple[list[list], list[list]]:
+    resolution: str,
+) -> list[dict]:
+    birdeye_type = RESOLUTION_MAP.get(resolution)
+    if birdeye_type is None:
+        raise ValueError(f"Unsupported resolution: {resolution}")
+
     params = {
-        "vs_currency": VS_CURRENCY,
-        "from": str(from_ts),
-        "to": str(to_ts),
+        "address": SOL_MINT,
+        "type": birdeye_type,
+        "time_from": str(from_ts),
+        "time_to": str(to_ts),
     }
     last_exc: Exception | None = None
     for attempt in range(MAX_RETRIES):
         try:
             resp = await client.get(
-                f"{COINGECKO_BASE}/coins/{COIN_ID}/market_chart/range",
+                f"{BIRDEYE_BASE}/defi/ohlcv",
                 params=params,
-                headers=_coingecko_headers(),
+                headers=_birdeye_headers(),
                 timeout=30.0,
             )
             resp.raise_for_status()
             data = resp.json()
-            return data.get("prices", []), data.get("total_volumes", [])
+            if not data.get("success"):
+                raise RuntimeError(f"Birdeye API error: {data}")
+            return data.get("data", {}).get("items", [])
         except httpx.HTTPStatusError as exc:
             last_exc = exc
             if exc.response.status_code in (429, 500, 502, 503, 504):
                 delay = 2 ** (attempt + 1)
                 log.warning(
-                    "CoinGecko %d for %d→%d, retry %d/%d in %ds",
+                    "Birdeye %d for %d→%d, retry %d/%d in %ds",
                     exc.response.status_code, from_ts, to_ts,
                     attempt + 1, MAX_RETRIES, delay,
                 )
@@ -101,47 +116,28 @@ async def _fetch_market_chart_range(
             last_exc = exc
             delay = 2 ** (attempt + 1)
             log.warning(
-                "CoinGecko transport error for %d→%d, retry %d/%d in %ds: %s",
+                "Birdeye transport error for %d→%d, retry %d/%d in %ds: %s",
                 from_ts, to_ts, attempt + 1, MAX_RETRIES, delay, exc,
             )
             await asyncio.sleep(delay)
     raise last_exc  # type: ignore[misc]
 
 
-def _build_candles(
-    prices: list[list],
-    volumes: list[list],
-    resolution: str,
-) -> list[tuple]:
-    volume_map: dict[int, float] = {}
-    for ts_ms, vol in volumes:
-        volume_map[ts_ms] = vol
-
+def _items_to_rows(items: list[dict], resolution: str) -> list[tuple]:
     rows = []
-    for i, (ts_ms, price) in enumerate(prices):
-        ts = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
-        vol = volume_map.get(ts_ms, 0.0)
-
-        if i > 0:
-            prev_price = prices[i - 1][1]
-            o = prev_price
-            h = max(prev_price, price)
-            l = min(prev_price, price)
-        else:
-            o = price
-            h = price
-            l = price
-
-        rows.append((ts, DEFAULT_PAIR, resolution, o, h, l, price, vol))
+    for item in items:
+        ts = datetime.fromtimestamp(item["unixTime"], tz=timezone.utc)
+        rows.append((
+            ts,
+            DEFAULT_PAIR,
+            resolution,
+            float(item["o"]),
+            float(item["h"]),
+            float(item["l"]),
+            float(item["c"]),
+            float(item["v"]),
+        ))
     return rows
-
-
-UPSERT_RETURNING_SQL = """
-INSERT INTO ohlcv_data (timestamp, pair, resolution, open, high, low, close, volume)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-ON CONFLICT (timestamp, pair, resolution) DO NOTHING
-RETURNING 1
-"""
 
 
 async def _upsert_batch(pool: asyncpg.Pool, rows: list[tuple]) -> int:
@@ -165,15 +161,15 @@ async def backfill(
     start = now - (days * 86400)
 
     if resolution == "1m":
-        chunk_days = 1
+        chunk_seconds = 86400
     else:
-        chunk_days = MAX_CHUNK_DAYS
+        chunk_seconds = MAX_CHUNK_SECONDS
 
     total = 0
     chunk_start = start
 
     while chunk_start < now:
-        chunk_end = min(chunk_start + chunk_days * 86400, now)
+        chunk_end = min(chunk_start + chunk_seconds, now)
         log.info(
             "Fetching %s chunk %s → %s",
             resolution,
@@ -182,9 +178,7 @@ async def backfill(
         )
 
         try:
-            prices, volumes = await _fetch_market_chart_range(
-                client, chunk_start, chunk_end
-            )
+            items = await _fetch_ohlcv(client, chunk_start, chunk_end, resolution)
         except Exception:
             log.exception(
                 "Failed to fetch chunk %s → %s after %d retries — gap in data",
@@ -196,7 +190,7 @@ async def backfill(
             await asyncio.sleep(RATE_LIMIT_DELAY)
             continue
 
-        rows = _build_candles(prices, volumes, resolution)
+        rows = _items_to_rows(items, resolution)
         inserted = await _upsert_batch(pool, rows)
         total += inserted
         log.info("Upserted %d rows (%d total)", inserted, total)
@@ -232,8 +226,8 @@ async def fetch_latest(
         latest.isoformat(),
     )
 
-    prices, volumes = await _fetch_market_chart_range(client, from_ts, to_ts)
-    rows = _build_candles(prices, volumes, resolution)
+    items = await _fetch_ohlcv(client, from_ts, to_ts, resolution)
+    rows = _items_to_rows(items, resolution)
     return await _upsert_batch(pool, rows)
 
 

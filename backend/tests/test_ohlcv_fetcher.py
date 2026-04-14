@@ -1,6 +1,6 @@
 """Tests for the OHLCV data fetcher.
 
-These tests mock the CoinGecko API and use a real PostgreSQL+TimescaleDB
+These tests mock the Birdeye API and use a real PostgreSQL+TimescaleDB
 database via the docker-compose stack (must be running).
 """
 
@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import time
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
@@ -22,70 +21,108 @@ except ImportError:
 
 from trek.ohlcv_fetcher import (
     DEFAULT_PAIR,
-    UPSERT_SQL,
-    _build_candles,
+    _fetch_ohlcv,
+    _items_to_rows,
     _upsert_batch,
     backfill,
     fetch_latest,
 )
 
-SAMPLE_PRICES = [
-    [1700000000000, 100.0],
-    [1700003600000, 101.5],
-    [1700007200000, 99.8],
-    [1700010800000, 102.3],
-]
-
-SAMPLE_VOLUMES = [
-    [1700000000000, 5000000.0],
-    [1700003600000, 6000000.0],
-    [1700007200000, 4500000.0],
-    [1700010800000, 7000000.0],
+SAMPLE_ITEMS = [
+    {"unixTime": 1700000000, "o": 100.0, "h": 101.0, "l": 99.0, "c": 100.5, "v": 5000000.0},
+    {"unixTime": 1700003600, "o": 100.5, "h": 102.0, "l": 100.0, "c": 101.5, "v": 6000000.0},
+    {"unixTime": 1700007200, "o": 101.5, "h": 101.5, "l": 99.0, "c": 99.8, "v": 4500000.0},
+    {"unixTime": 1700010800, "o": 99.8, "h": 102.5, "l": 99.5, "c": 102.3, "v": 7000000.0},
 ]
 
 
-class TestBuildCandles:
+class TestItemsToRows:
     def test_builds_correct_number_of_rows(self):
-        rows = _build_candles(SAMPLE_PRICES, SAMPLE_VOLUMES, "1h")
+        rows = _items_to_rows(SAMPLE_ITEMS, "1h")
         assert len(rows) == 4
 
-    def test_first_candle_open_equals_close(self):
-        rows = _build_candles(SAMPLE_PRICES, SAMPLE_VOLUMES, "1h")
+    def test_ohlcv_values_preserved(self):
+        rows = _items_to_rows(SAMPLE_ITEMS, "1h")
         ts, pair, res, o, h, l, c, v = rows[0]
-        assert o == c == 100.0
-
-    def test_subsequent_candle_open_is_previous_close(self):
-        rows = _build_candles(SAMPLE_PRICES, SAMPLE_VOLUMES, "1h")
-        _, _, _, _, _, _, c0, _ = rows[0]
-        _, _, _, o1, _, _, c1, _ = rows[1]
-        assert o1 == c0
-        assert c1 == 101.5
-
-    def test_high_low_computed_correctly(self):
-        rows = _build_candles(SAMPLE_PRICES, SAMPLE_VOLUMES, "1h")
-        _, _, _, o, h, l, c, _ = rows[2]
-        assert h == max(101.5, 99.8)
-        assert l == min(101.5, 99.8)
-
-    def test_volume_mapped(self):
-        rows = _build_candles(SAMPLE_PRICES, SAMPLE_VOLUMES, "1h")
-        assert rows[0][7] == 5000000.0
-        assert rows[1][7] == 6000000.0
+        assert o == 100.0
+        assert h == 101.0
+        assert l == 99.0
+        assert c == 100.5
+        assert v == 5000000.0
 
     def test_timestamps_are_utc(self):
-        rows = _build_candles(SAMPLE_PRICES, SAMPLE_VOLUMES, "1h")
+        rows = _items_to_rows(SAMPLE_ITEMS, "1h")
         for ts, *_ in rows:
             assert ts.tzinfo == timezone.utc
 
     def test_pair_and_resolution_set(self):
-        rows = _build_candles(SAMPLE_PRICES, SAMPLE_VOLUMES, "1h")
+        rows = _items_to_rows(SAMPLE_ITEMS, "1h")
         for _, pair, res, *_ in rows:
             assert pair == DEFAULT_PAIR
             assert res == "1h"
 
     def test_empty_input(self):
-        rows = _build_candles([], [], "1h")
+        rows = _items_to_rows([], "1h")
         assert rows == []
+
+    def test_second_candle_values(self):
+        rows = _items_to_rows(SAMPLE_ITEMS, "1h")
+        ts, pair, res, o, h, l, c, v = rows[1]
+        assert o == 100.5
+        assert h == 102.0
+        assert l == 100.0
+        assert c == 101.5
+        assert v == 6000000.0
+
+    def test_unix_timestamp_conversion(self):
+        rows = _items_to_rows(SAMPLE_ITEMS, "1h")
+        expected = datetime.fromtimestamp(1700000000, tz=timezone.utc)
+        assert rows[0][0] == expected
+
+
+@patch.dict(os.environ, {"BIRDEYE_API_KEY": "test-key"})
+class TestFetchOhlcvRetry:
+    @pytest.mark.asyncio
+    async def test_retries_on_429(self):
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        error_resp = AsyncMock()
+        error_resp.status_code = 429
+        error_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "rate limited", request=AsyncMock(), response=error_resp
+        )
+        ok_resp = AsyncMock()
+        ok_resp.raise_for_status = lambda: None
+        ok_resp.json.return_value = {
+            "success": True,
+            "data": {"items": SAMPLE_ITEMS},
+        }
+        mock_client.get.side_effect = [error_resp, ok_resp]
+
+        with patch("trek.ohlcv_fetcher.asyncio.sleep", new_callable=AsyncMock):
+            items = await _fetch_ohlcv(mock_client, 1000, 2000, "1h")
+        assert len(items) == 4
+        assert mock_client.get.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_raises_on_non_retryable_status(self):
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        error_resp = AsyncMock()
+        error_resp.status_code = 403
+        error_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "forbidden", request=AsyncMock(), response=error_resp
+        )
+        mock_client.get.return_value = error_resp
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await _fetch_ohlcv(mock_client, 1000, 2000, "1h")
+        assert mock_client.get.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_raises_without_api_key(self):
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        with patch.dict(os.environ, {}, clear=True):
+            with pytest.raises(RuntimeError, match="BIRDEYE_API_KEY"):
+                await _fetch_ohlcv(mock_client, 1000, 2000, "1h")
 
 
 DB_URL = os.environ.get(
@@ -177,25 +214,20 @@ class TestBackfillAndUpdate:
     @pytest.mark.asyncio
     async def test_backfill_calls_api_and_inserts(self, pool):
         mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_resp = AsyncMock()
-        mock_resp.json.return_value = {
-            "prices": SAMPLE_PRICES,
-            "total_volumes": SAMPLE_VOLUMES,
-        }
-        mock_resp.raise_for_status = lambda: None
-        mock_client.get.return_value = mock_resp
 
-        total = await backfill(pool, mock_client, "test_1h", days=1)
-        assert total == 4
-        assert mock_client.get.called
+        with patch("trek.ohlcv_fetcher._fetch_ohlcv", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = SAMPLE_ITEMS
+            total = await backfill(pool, mock_client, "test_1h", days=1)
+            assert total == 4
+            mock_fetch.assert_called()
 
     @pytest.mark.asyncio
     async def test_fetch_latest_no_data_triggers_backfill(self, pool):
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_resp = AsyncMock()
         mock_resp.json.return_value = {
-            "prices": SAMPLE_PRICES,
-            "total_volumes": SAMPLE_VOLUMES,
+            "success": True,
+            "data": {"items": SAMPLE_ITEMS},
         }
         mock_resp.raise_for_status = lambda: None
         mock_client.get.return_value = mock_resp

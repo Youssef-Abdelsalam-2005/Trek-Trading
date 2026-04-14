@@ -20,7 +20,7 @@ def upgrade() -> None:
     op.create_table(
         "ohlcv_data",
         sa.Column("timestamp", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("pair", sa.String(32), nullable=False, server_default="SOL/USD"),
+        sa.Column("pair", sa.String(32), nullable=False, server_default="SOL/USDC"),
         sa.Column("resolution", sa.String(16), nullable=False),
         sa.Column("open", sa.Float, nullable=False),
         sa.Column("high", sa.Float, nullable=False),
