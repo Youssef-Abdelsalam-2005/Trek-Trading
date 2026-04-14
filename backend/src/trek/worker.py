@@ -65,6 +65,41 @@ async def handle_test(payload: dict[str, Any]) -> None:
     log.info("Executing test task with payload: %s", payload)
 
 
+@register_handler("ohlcv_backfill")
+async def handle_ohlcv_backfill(payload: dict[str, Any]) -> None:
+    from trek.ohlcv_fetcher import backfill
+
+    days = payload.get("days", 90)
+    resolution = payload.get("resolution", "1h")
+    dsn = _database_url()
+    pool = await asyncpg.create_pool(dsn, min_size=1, max_size=3)
+    import httpx
+
+    async with httpx.AsyncClient() as client:
+        try:
+            total = await backfill(pool, client, resolution, days)
+            log.info("ohlcv_backfill: %d rows", total)
+        finally:
+            await pool.close()
+
+
+@register_handler("ohlcv_update")
+async def handle_ohlcv_update(payload: dict[str, Any]) -> None:
+    from trek.ohlcv_fetcher import fetch_latest
+
+    resolution = payload.get("resolution", "1h")
+    dsn = _database_url()
+    pool = await asyncpg.create_pool(dsn, min_size=1, max_size=3)
+    import httpx
+
+    async with httpx.AsyncClient() as client:
+        try:
+            count = await fetch_latest(pool, client, resolution)
+            log.info("ohlcv_update: %d new rows", count)
+        finally:
+            await pool.close()
+
+
 def _database_url() -> str:
     url = os.environ.get("DATABASE_URL", "")
     if url.startswith("postgresql+asyncpg://"):
