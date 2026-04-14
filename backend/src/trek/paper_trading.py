@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Protocol
 
 from trek.jupiter_client import JupiterQuoteClient
@@ -19,6 +20,18 @@ class SignalGenerator(Protocol):
     def generate_signal(self, step: int) -> TradeDirection | None: ...
 
 
+@dataclass
+class StepResult:
+    trade: PaperTrade | None
+    equity_value: float
+    capital: float
+    position: float
+    finished: bool
+    final_status: StrategyStatus | None = None
+    sortino: float = 0.0
+    max_dd: float = 0.0
+
+
 class PaperTradingSessionManager:
     def __init__(
         self,
@@ -33,6 +46,37 @@ class PaperTradingSessionManager:
         self.rng = rng or random.Random()
         self._capital = session.initial_capital
         self._position: float = 0.0
+
+    def restore_state(self, capital: float, position: float) -> None:
+        self._capital = capital
+        self._position = position
+
+    async def execute_step(self, step: int, total_steps: int) -> StepResult:
+        signal = self.signal_generator.generate_signal(step)
+        trade = None
+
+        if signal is not None:
+            trade = await self._execute_signal(signal, step)
+
+        equity_value = self._capital + self._position
+        finished = (step + 1) >= total_steps
+
+        result = StepResult(
+            trade=trade,
+            equity_value=equity_value,
+            capital=self._capital,
+            position=self._position,
+            finished=finished,
+        )
+
+        if finished:
+            self.session.equity_curve.append(equity_value)
+            self._evaluate_session()
+            result.final_status = self.session.status
+            result.sortino = self._last_sortino
+            result.max_dd = self._last_max_dd
+
+        return result
 
     async def run(self, num_steps: int) -> PaperSession:
         self.session.equity_curve = [self._capital]
@@ -49,7 +93,7 @@ class PaperTradingSessionManager:
         self._evaluate_session()
         return self.session
 
-    async def _execute_signal(self, direction: TradeDirection, step: int) -> None:
+    async def _execute_signal(self, direction: TradeDirection, step: int) -> PaperTrade | None:
         if direction == TradeDirection.BUY:
             input_mint = "So11111111111111111111111111111111111111112"
             output_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
@@ -60,7 +104,7 @@ class PaperTradingSessionManager:
             amount = self._position * 0.5 if self._position > 0 else 0
 
         if amount <= 0:
-            return
+            return None
 
         quote = await self.quote_client.get_quote(
             input_mint=input_mint,
@@ -90,10 +134,14 @@ class PaperTradingSessionManager:
                 self._position -= amount
                 self._capital += quote.out_amount
 
+        return trade
+
     def _evaluate_session(self) -> None:
         curve = self.session.equity_curve
         if len(curve) < 2:
             self.session.status = StrategyStatus.PAPER_FAILED
+            self._last_sortino = 0.0
+            self._last_max_dd = 0.0
             return
 
         returns = [
@@ -104,6 +152,8 @@ class PaperTradingSessionManager:
 
         session_sortino = sortino_ratio(returns)
         session_max_dd = max_drawdown(curve)
+        self._last_sortino = session_sortino
+        self._last_max_dd = session_max_dd
 
         passed = (
             session_sortino >= self.session.sortino_threshold

@@ -65,6 +65,49 @@ async def handle_test(payload: dict[str, Any]) -> None:
     log.info("Executing test task with payload: %s", payload)
 
 
+@register_handler("paper_trading")
+async def handle_paper_trading(payload: dict[str, Any]) -> None:
+    import uuid
+    from datetime import datetime, timezone
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from trek.models import PaperSession, StrategyStatus
+    from trek.orm import PaperSessionRow
+    from trek.paper_session_store import create_session
+
+    variation_id = uuid.UUID(payload["variation_id"])
+    duration_days = payload.get("duration_days", 7)
+    drop_rate = payload.get("drop_rate", 0.30)
+    sortino_threshold = payload.get("sortino_threshold", 1.0)
+    max_drawdown_threshold = payload.get("max_drawdown_threshold", 0.30)
+    initial_capital = payload.get("initial_capital", 1000.0)
+    total_steps = payload.get("total_steps", duration_days * 24)
+
+    db_url = os.environ.get("DATABASE_URL", os.environ.get("TREK_DATABASE_URL", ""))
+    if db_url.startswith("postgresql://"):
+        db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+    engine = create_async_engine(db_url, echo=False)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    try:
+        async with factory() as db:
+            session = PaperSession(
+                variation_id=variation_id,
+                duration_days=duration_days,
+                drop_rate=drop_rate,
+                sortino_threshold=sortino_threshold,
+                max_drawdown_threshold=max_drawdown_threshold,
+                initial_capital=initial_capital,
+            )
+            await create_session(db, session, total_steps=total_steps)
+            await db.commit()
+            log.info("Created paper session %s for variation %s (%d steps)", session.id, variation_id, total_steps)
+    finally:
+        await engine.dispose()
+
+
 def _database_url() -> str:
     url = os.environ.get("DATABASE_URL", "")
     if url.startswith("postgresql+asyncpg://"):
