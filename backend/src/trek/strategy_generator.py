@@ -231,22 +231,56 @@ async def generate_strategy(request: GenerationRequest) -> GenerationResult:
     return result
 
 
+_db_pool = None
+
+
+def set_db_pool(pool) -> None:
+    global _db_pool
+    _db_pool = pool
+
+
 async def create_strategy_variation(result: GenerationResult) -> None:
-    """Persist a strategy_variation record. Stub until DB schema lands (Step 2/3)."""
-    log.info(
-        "strategy_variation %s created [status=%s, cost=$%.6f, cumulative=$%.6f] "
-        "(DB write pending Step 2/3)",
-        result.variation_id,
-        result.status,
-        result.cost.cost_usd,
-        result.cumulative_cost_usd,
-    )
+    if _db_pool is None:
+        log.info(
+            "strategy_variation %s created [status=%s, cost=$%.6f, cumulative=$%.6f] (no DB pool)",
+            result.variation_id, result.status, result.cost.cost_usd, result.cumulative_cost_usd,
+        )
+        return
+
+    async with _db_pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO strategy_variation
+                (id, experiment_id, parent_id, status, code, lineage_depth,
+                 llm_token_input, llm_token_output, llm_cost, llm_cumulative_cost,
+                 error, created_at, updated_at)
+            VALUES ($1, $2, $3, $4::strategy_status, $5, $6, $7, $8, $9, $10, $11, now(), now())
+            """,
+            uuid.UUID(result.variation_id),
+            uuid.UUID(result.experiment_id) if result.experiment_id else None,
+            uuid.UUID(result.parent_variation_id) if result.parent_variation_id else None,
+            result.status,
+            result.code,
+            0,
+            result.cost.prompt_tokens,
+            result.cost.completion_tokens,
+            result.cost.cost_usd,
+            result.cumulative_cost_usd,
+            result.error,
+        )
+    log.info("strategy_variation %s persisted", result.variation_id)
 
 
 async def get_parent_cumulative_cost(variation_id: str) -> float:
-    """Look up a variation's cumulative cost. Stub until DB schema lands (Step 2/3)."""
-    log.info(
-        "Parent cost lookup for %s (DB read pending Step 2/3)",
-        variation_id,
-    )
-    return 0.0
+    if _db_pool is None:
+        log.info("Parent cost lookup for %s (no DB pool)", variation_id)
+        return 0.0
+
+    async with _db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT llm_cumulative_cost FROM strategy_variation WHERE id = $1",
+            uuid.UUID(variation_id),
+        )
+    if row is None:
+        return 0.0
+    return float(row["llm_cumulative_cost"])
