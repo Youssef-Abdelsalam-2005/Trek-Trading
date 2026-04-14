@@ -68,6 +68,9 @@ class StrategyVariation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     live_deployments: Mapped[list["LiveDeployment"]] = relationship(
         "LiveDeployment", back_populates="variation", lazy="selectin"
     )
+    trades: Mapped[list["Trade"]] = relationship(
+        "Trade", back_populates="variation", lazy="noload"
+    )
 
     def transition_to(self, target: StrategyStatus) -> None:
         if not validate_transition(self.status, target):

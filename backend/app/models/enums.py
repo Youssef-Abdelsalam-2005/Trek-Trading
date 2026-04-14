@@ -81,6 +81,12 @@ class TradeDirection(str, enum.Enum):
     SELL = "sell"
 
 
+class TradeStatus(str, enum.Enum):
+    FILLED = "filled"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
 class TradeSource(str, enum.Enum):
     BACKTEST = "backtest"
     PAPER = "paper"
