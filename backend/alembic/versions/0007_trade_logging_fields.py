@@ -1,7 +1,7 @@
 """Extend trade table with full logging fields
 
 Revision ID: 0007
-Revises: 0004
+Revises: 0006
 Create Date: 2026-04-14
 """
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
 
 revision = "0007"
-down_revision = "0004"
+down_revision = "0006"
 branch_labels = None
 depends_on = None
 
