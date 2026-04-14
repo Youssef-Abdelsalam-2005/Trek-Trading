@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: trek-trading
+Version: 0.1.0
+Summary: Trek Trading — LLM-powered quant platform
+Requires-Python: >=3.12
+Requires-Dist: fastapi<1,>=0.115
+Requires-Dist: uvicorn[standard]<1,>=0.34
+Requires-Dist: sqlalchemy[asyncio]<3,>=2.0
+Requires-Dist: asyncpg<1,>=0.30
+Requires-Dist: alembic<2,>=1.14
+Requires-Dist: pydantic<3,>=2.0
+Requires-Dist: pydantic-settings<3,>=2.0
+Requires-Dist: cryptography<45,>=44
+Requires-Dist: anthropic<1,>=0.52
+Provides-Extra: test
+Requires-Dist: pytest<9,>=8.0; extra == "test"
+Requires-Dist: pytest-asyncio<1,>=0.24; extra == "test"
