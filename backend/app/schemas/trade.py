@@ -59,14 +59,3 @@ class TradeResponse(BaseResponseSchema):
     tx_signature: str | None
     failure_reason: str | None
     executed_at: datetime
-
-
-class TradeListParams(BaseSchema):
-    variation_id: uuid.UUID | None = None
-    experiment_id: uuid.UUID | None = None
-    source: TradeSource | None = None
-    status: TradeStatus | None = None
-    start_date: datetime | None = None
-    end_date: datetime | None = None
-    limit: int = Field(default=100, ge=1, le=1000)
-    offset: int = Field(default=0, ge=0)

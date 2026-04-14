@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from backend.app.models.enums import TradeDirection, TradeSource, TradeStatus
-from backend.app.schemas.trade import TradeCreate, TradeResponse, TradeListParams
+from backend.app.schemas.trade import TradeCreate, TradeResponse
 
 
 class TestTradeStatus:
@@ -144,21 +144,3 @@ class TestTradeResponse:
         assert resp.status == TradeStatus.FILLED
         assert resp.input_amount == 5.0
         assert resp.fill_price == 149.0
-
-
-class TestTradeListParams:
-    def test_defaults(self):
-        params = TradeListParams()
-        assert params.limit == 100
-        assert params.offset == 0
-        assert params.variation_id is None
-
-    def test_filter_by_source(self):
-        params = TradeListParams(source=TradeSource.LIVE)
-        assert params.source == TradeSource.LIVE
-
-    def test_limit_bounds(self):
-        with pytest.raises(ValidationError):
-            TradeListParams(limit=0)
-        with pytest.raises(ValidationError):
-            TradeListParams(limit=1001)
