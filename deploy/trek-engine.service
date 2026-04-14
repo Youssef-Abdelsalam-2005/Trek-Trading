@@ -1,19 +1,20 @@
 [Unit]
-Description=Trek Trading Worker Process
+Description=Trek Trading Execution Engine
 After=docker.service
 Wants=docker.service
 
 [Service]
 Type=simple
-User=trek-worker
-Group=trek-worker
+User=trek-engine
+Group=trek-engine
+SupplementaryGroups=trek-shared
 WorkingDirectory=/opt/trek
-ExecStart=/opt/trek/.venv/bin/python -m trek.worker
+ExecStart=/opt/trek/.venv/bin/python -m trek.engine
 Restart=on-failure
 RestartSec=5
 KillSignal=SIGTERM
-TimeoutStopSec=30
-EnvironmentFile=/etc/trek/worker.env
+TimeoutStopSec=60
+EnvironmentFile=/etc/trek/engine.env
 
 ProtectSystem=strict
 ProtectHome=true
