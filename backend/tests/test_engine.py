@@ -87,17 +87,23 @@ CREATE TABLE IF NOT EXISTS live_deployment (
 CREATE TABLE IF NOT EXISTS trade (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     variation_id UUID NOT NULL REFERENCES strategy_variation(id) ON DELETE CASCADE,
+    paper_session_id UUID,
+    live_deployment_id UUID REFERENCES live_deployment(id) ON DELETE SET NULL,
     source VARCHAR(16) NOT NULL DEFAULT 'live',
     direction VARCHAR(8) NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'filled',
     pair VARCHAR(32) NOT NULL DEFAULT 'SOL/USDC',
-    price FLOAT NOT NULL,
-    quantity FLOAT NOT NULL,
-    value_usd FLOAT NOT NULL,
+    input_amount FLOAT NOT NULL,
+    output_amount FLOAT,
+    quoted_price FLOAT NOT NULL,
+    fill_price FLOAT,
+    price_impact_bps FLOAT,
     fee_usd FLOAT,
     slippage_bps FLOAT,
+    jito_tip_lamports INTEGER,
     tx_signature VARCHAR(128),
+    failure_reason TEXT,
     executed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    metadata JSON,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -279,9 +285,13 @@ async def test_trade_execution_and_pnl_tracking(pool, seed_data):
         )
         assert trade is not None
         assert trade["direction"] == "buy"
-        assert trade["price"] == 150.0
+        assert trade["quoted_price"] == 150.0
+        assert trade["fill_price"] == 150.0
+        assert trade["input_amount"] == 1.0
         assert trade["tx_signature"] == "abc123signature"
         assert trade["source"] == "live"
+        assert trade["status"] == "filled"
+        assert trade["live_deployment_id"] == seed_data["deployment_id"]
 
         dep = await conn.fetchrow(
             "SELECT * FROM live_deployment WHERE id = $1", seed_data["deployment_id"]
