@@ -48,7 +48,7 @@ SET status = CASE WHEN retry_count < max_retries THEN 'pending' ELSE 'failed' EN
 WHERE id = $1;
 """
 
-TaskHandler = Callable[[dict[str, Any]], Awaitable[None]]
+TaskHandler = Callable[[dict[str, Any], asyncpg.Pool], Awaitable[None]]
 
 _handlers: dict[str, TaskHandler] = {}
 
@@ -61,8 +61,11 @@ def register_handler(task_type: str) -> Callable[[TaskHandler], TaskHandler]:
 
 
 @register_handler("test")
-async def handle_test(payload: dict[str, Any]) -> None:
+async def handle_test(payload: dict[str, Any], pool: asyncpg.Pool) -> None:
     log.info("Executing test task with payload: %s", payload)
+
+
+import trek.handlers  # noqa: E402, F401 — registers task handlers
 
 
 def _database_url() -> str:
@@ -98,7 +101,7 @@ async def _process_one(pool: asyncpg.Pool) -> bool:
                 return True
 
     try:
-        await handler(payload or {})
+        await handler(payload or {}, pool)
     except Exception:
         log.exception("Task %s failed", task_id)
         async with pool.acquire() as conn:
