@@ -97,15 +97,27 @@ async def test_enqueue_dequeue_no_duplicates(queue_service: TaskQueueService):
 
 @pytest.mark.asyncio
 async def test_failed_tasks_retry_up_to_3_times(queue_service: TaskQueueService, pool):
-    """Failed tasks get retried up to max_retries (3) times."""
+    """Failed tasks get retried up to max_retries (3) times, then permanently fail on the 4th."""
     task_id = await queue_service.enqueue("retry_job", {"data": "test"}, max_retries=3)
 
     for attempt in range(3):
         await asyncio.sleep(0.05)
         task = await queue_service.dequeue("retry_job")
-        assert task is not None, f"Expected task on attempt {attempt}"
+        assert task is not None, f"Expected task on retry attempt {attempt + 1}"
         assert task["id"] == task_id
         await queue_service.fail(task_id, f"error on attempt {attempt}")
+
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT status, retry_count FROM task_queue WHERE id = $1", task_id,
+            )
+            assert row["status"] == "pending", f"Expected pending after retry {attempt + 1}"
+            assert row["retry_count"] == attempt + 1
+
+    await asyncio.sleep(0.05)
+    task = await queue_service.dequeue("retry_job")
+    assert task is not None, "Expected task on final attempt (will permanently fail)"
+    await queue_service.fail(task_id, "final failure")
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -113,8 +125,8 @@ async def test_failed_tasks_retry_up_to_3_times(queue_service: TaskQueueService,
             task_id,
         )
         assert row["status"] == "failed"
-        assert row["retry_count"] == 3
-        assert "error on attempt 2" in row["error_message"]
+        assert row["retry_count"] == 4
+        assert "final failure" in row["error_message"]
 
     task = await queue_service.dequeue("retry_job")
     assert task is None, "Should not be dequeued after exhausting retries"
