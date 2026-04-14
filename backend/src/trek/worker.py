@@ -17,35 +17,38 @@ log = logging.getLogger(__name__)
 
 DEQUEUE_SQL = """
 UPDATE task_queue
-SET status = 'processing',
-    started_at = now()
+SET status = 'running',
+    started_at = now(),
+    updated_at = now()
 WHERE id = (
     SELECT id FROM task_queue
     WHERE status = 'pending'
-      AND (scheduled_for IS NULL OR scheduled_for <= now())
-    ORDER BY priority DESC, created_at ASC
+      AND (scheduled_at IS NULL OR scheduled_at <= now())
+    ORDER BY created_at ASC
     FOR UPDATE SKIP LOCKED
     LIMIT 1
 )
-RETURNING id, task_type, payload, retry_count;
+RETURNING id, task_type, payload, retry_count, max_retries;
 """
 
 COMPLETE_SQL = """
 UPDATE task_queue
-SET status = 'completed', finished_at = now()
-WHERE id = $1;
+SET status = 'completed', completed_at = now(), updated_at = now()
+WHERE id = $1 AND status = 'running';
 """
 
 FAIL_SQL = """
 UPDATE task_queue
 SET status = CASE WHEN retry_count < max_retries THEN 'pending' ELSE 'failed' END,
     retry_count = retry_count + 1,
-    last_error = $2,
-    finished_at = CASE WHEN retry_count < max_retries THEN NULL ELSE now() END,
-    scheduled_for = CASE WHEN retry_count < max_retries
+    error_message = $2,
+    completed_at = CASE WHEN retry_count >= max_retries THEN now() ELSE NULL END,
+    started_at = CASE WHEN retry_count < max_retries THEN NULL ELSE started_at END,
+    scheduled_at = CASE WHEN retry_count < max_retries
         THEN now() + make_interval(secs => power(2, retry_count + 1))
-        ELSE NULL END
-WHERE id = $1;
+        ELSE NULL END,
+    updated_at = now()
+WHERE id = $1 AND status = 'running';
 """
 
 TaskHandler = Callable[[dict[str, Any]], Awaitable[None]]
