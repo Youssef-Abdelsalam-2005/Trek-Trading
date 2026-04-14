@@ -1,9 +1,12 @@
 """OHLCV data fetcher — pulls SOL/USDC candles from Birdeye and stores them in TimescaleDB.
 
-Birdeye's /defi/ohlcv endpoint returns actual Solana DEX OHLCV candles for
-a given token, aggregated across on-chain liquidity pools. This gives us
-real SOL/USDC trading data from Solana DEXes (Raydium, Orca, etc.), which
-matches the pairs the system executes against.
+Birdeye's /defi/ohlcv/pair endpoint returns actual OHLCV candles for a specific
+DEX pool. We use the Raydium SOL/USDC pool (the highest-liquidity SOL/USDC pool
+on Solana) so candle data matches the execution venue for backtesting.
+
+Free tier budget: 30,000 CU/month at 40 CU per OHLCV call. Hourly updates would
+consume 28,800 CU/month (96%), leaving no headroom for retries. The engine should
+call fetch_latest every 4–6h instead of every 1h.
 
 Requires BIRDEYE_API_KEY environment variable.
 """
@@ -29,7 +32,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 BIRDEYE_BASE = "https://public-api.birdeye.so"
-SOL_MINT = "So11111111111111111111111111111111111111112"
+RAYDIUM_SOL_USDC_PAIR = "58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2"
 DEFAULT_PAIR = "SOL/USDC"
 
 RESOLUTION_MAP = {
@@ -81,7 +84,7 @@ async def _fetch_ohlcv(
         raise ValueError(f"Unsupported resolution: {resolution}")
 
     params = {
-        "address": SOL_MINT,
+        "address": RAYDIUM_SOL_USDC_PAIR,
         "type": birdeye_type,
         "time_from": str(from_ts),
         "time_to": str(to_ts),
@@ -90,7 +93,7 @@ async def _fetch_ohlcv(
     for attempt in range(MAX_RETRIES):
         try:
             resp = await client.get(
-                f"{BIRDEYE_BASE}/defi/ohlcv",
+                f"{BIRDEYE_BASE}/defi/ohlcv/pair",
                 params=params,
                 headers=_birdeye_headers(),
                 timeout=30.0,
