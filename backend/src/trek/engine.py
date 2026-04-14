@@ -481,23 +481,9 @@ class ExecutionEngine:
     async def _listen_loop(self) -> None:
         listener_conn = await asyncpg.connect(self._dsn)
         notify_event = asyncio.Event()
-
-        def _on_notify(
-            conn: asyncpg.Connection,
-            pid: int,
-            channel: str,
-            payload: str,
-        ) -> None:
-            notify_event.set()
-
-        await listener_conn.add_listener("strategy_deployed", _on_notify)
-        await listener_conn.add_listener("kill_switch", _on_notify)
-        await listener_conn.add_listener("strategy_stopped", _on_notify)
-        log.info("Listening on channels: strategy_deployed, kill_switch, strategy_stopped")
-
         pending_events: list[tuple[str, str]] = []
 
-        def _on_notify_with_payload(
+        def _on_notify(
             conn: asyncpg.Connection,
             pid: int,
             channel: str,
@@ -506,13 +492,10 @@ class ExecutionEngine:
             pending_events.append((channel, payload))
             notify_event.set()
 
-        await listener_conn.remove_listener("strategy_deployed", _on_notify)
-        await listener_conn.remove_listener("kill_switch", _on_notify)
-        await listener_conn.remove_listener("strategy_stopped", _on_notify)
-
-        await listener_conn.add_listener("strategy_deployed", _on_notify_with_payload)
-        await listener_conn.add_listener("kill_switch", _on_notify_with_payload)
-        await listener_conn.add_listener("strategy_stopped", _on_notify_with_payload)
+        await listener_conn.add_listener("strategy_deployed", _on_notify)
+        await listener_conn.add_listener("kill_switch", _on_notify)
+        await listener_conn.add_listener("strategy_stopped", _on_notify)
+        log.info("Listening on channels: strategy_deployed, kill_switch, strategy_stopped")
 
         try:
             while not self._stop.is_set():
@@ -540,9 +523,9 @@ class ExecutionEngine:
                     await self._load_and_start_deployments()
 
         finally:
-            await listener_conn.remove_listener("strategy_deployed", _on_notify_with_payload)
-            await listener_conn.remove_listener("kill_switch", _on_notify_with_payload)
-            await listener_conn.remove_listener("strategy_stopped", _on_notify_with_payload)
+            await listener_conn.remove_listener("strategy_deployed", _on_notify)
+            await listener_conn.remove_listener("kill_switch", _on_notify)
+            await listener_conn.remove_listener("strategy_stopped", _on_notify)
             await listener_conn.close()
 
     async def _handle_notify(self, channel: str, payload: str) -> None:
