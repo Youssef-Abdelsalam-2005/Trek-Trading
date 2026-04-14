@@ -1,0 +1,25 @@
+[Unit]
+Description=Trek Trading Worker Process
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=trek-worker
+Group=trek-worker
+WorkingDirectory=/opt/trek
+ExecStart=/opt/trek/.venv/bin/python -m trek.worker
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+EnvironmentFile=/etc/trek/worker.env
+
+ProtectSystem=strict
+ProtectHome=true
+NoNewPrivileges=true
+PrivateTmp=true
+ReadWritePaths=/opt/trek/logs
+
+[Install]
+WantedBy=multi-user.target
