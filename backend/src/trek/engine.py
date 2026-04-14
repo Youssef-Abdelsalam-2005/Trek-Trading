@@ -12,6 +12,8 @@ from typing import Any
 
 import asyncpg
 
+from trek.services.trade_logger import TradeLogger
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [engine] %(levelname)s %(message)s",
@@ -103,18 +105,6 @@ ORDER BY created_at DESC
 LIMIT 1;
 """
 
-INSERT_TRADE_SQL = """
-INSERT INTO trade (
-    id, variation_id, source, direction, pair,
-    price, quantity, value_usd, fee_usd, slippage_bps,
-    tx_signature, executed_at, metadata, created_at, updated_at
-) VALUES (
-    $1, $2, 'live', $3, $4,
-    $5, $6, $7, $8, $9,
-    $10, $11, $12, now(), now()
-);
-"""
-
 UPDATE_DEPLOYMENT_AFTER_TRADE_SQL = """
 UPDATE live_deployment
 SET last_signal_at = $2,
@@ -191,6 +181,7 @@ class ExecutionEngine:
         self._stop = asyncio.Event()
         self._loops: dict[uuid.UUID, StrategyLoop] = {}  # keyed by deployment_id
         self._drawdown_threshold: float = 0.15  # default, loaded from risk_config
+        self._trade_logger = TradeLogger(pool)
 
     async def start(self) -> None:
         async with self._pool.acquire() as conn:
@@ -360,33 +351,31 @@ class ExecutionEngine:
         pnl_usd = result.value_usd if result.direction == "sell" else -result.value_usd
         pnl_sol = result.quantity if result.direction == "sell" else -result.quantity
 
-        trade_id = uuid.uuid4()
-        trade_metadata = json.dumps(result.metadata) if result.metadata else None
+        trade_id = await self._trade_logger.log_trade(
+            variation_id=sl.variation_id,
+            live_deployment_id=sl.deployment_id,
+            source="live",
+            direction=result.direction,
+            status="filled",
+            pair=result.pair,
+            input_amount=result.quantity,
+            output_amount=result.value_usd,
+            quoted_price=result.price,
+            fill_price=result.price,
+            fee_usd=result.fee_usd,
+            slippage_bps=result.slippage_bps,
+            tx_signature=result.tx_signature,
+            executed_at=result.executed_at,
+        )
 
         async with self._pool.acquire() as conn:
-            async with conn.transaction():
-                await conn.execute(
-                    INSERT_TRADE_SQL,
-                    trade_id,
-                    sl.variation_id,
-                    result.direction,
-                    result.pair,
-                    result.price,
-                    result.quantity,
-                    result.value_usd,
-                    result.fee_usd,
-                    result.slippage_bps,
-                    result.tx_signature,
-                    result.executed_at,
-                    trade_metadata,
-                )
-                await conn.execute(
-                    UPDATE_DEPLOYMENT_AFTER_TRADE_SQL,
-                    sl.deployment_id,
-                    now,
-                    pnl_usd,
-                    pnl_sol,
-                )
+            await conn.execute(
+                UPDATE_DEPLOYMENT_AFTER_TRADE_SQL,
+                sl.deployment_id,
+                now,
+                pnl_usd,
+                pnl_sol,
+            )
 
         sl.last_signal_at = now
 
