@@ -132,9 +132,9 @@ class TestMaxDrawdown:
 
     def test_multiple_drawdowns_returns_worst(self) -> None:
         curve = [100.0, 90.0, 95.0, 80.0, 85.0]
-        # First dd: 10/100 = 0.1, second: from peak=95 to 80 = 15/95 ≈ 0.1579
+        # Peak never exceeds 100. Worst trough is 80 -> dd = 20/100 = 0.2
         result = max_drawdown(curve)
-        assert abs(result - 15 / 95) < 1e-10
+        assert abs(result - 0.2) < 1e-10
 
     def test_total_loss(self) -> None:
         curve = [100.0, 50.0, 0.0]
@@ -371,12 +371,23 @@ class TestStateTransitions:
 
     @pytest.mark.asyncio
     async def test_transitions_to_paper_failed_on_bad_sortino(self) -> None:
+        async def mediocre_quote(input_mint, output_mint, amount, slippage_bps=50):
+            return QuoteResponse(
+                input_mint=input_mint,
+                output_mint=output_mint,
+                in_amount=amount,
+                out_amount=amount * 0.95,
+                price_impact_pct=1.0,
+                route_plan=[{"swap": "direct"}],
+            )
+
         session = _make_session(
             drop_rate=0.0,
             sortino_threshold=999.0,
             max_drawdown_threshold=0.99,
         )
         client = FakeQuoteClient()
+        client.get_quote = mediocre_quote  # type: ignore[assignment]
         manager = PaperTradingSessionManager(
             session=session,
             signal_generator=AlwaysBuySignal(),
