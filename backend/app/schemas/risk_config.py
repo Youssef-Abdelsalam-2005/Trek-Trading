@@ -1,44 +1,58 @@
+import uuid
+
 from pydantic import Field
 
 from backend.app.schemas.base import BaseResponseSchema, BaseSchema
 
 
 class RiskConfigCreate(BaseSchema):
-    label: str = Field(default="global", max_length=64)
-    max_position_size_usd: float = Field(..., gt=0)
-    max_drawdown_pct: float = Field(..., gt=0, le=1.0)
-    max_daily_loss_usd: float = Field(..., gt=0)
-    max_concurrent_live: int = Field(default=3, ge=1)
-    portfolio_stop_loss_pct: float = Field(..., gt=0, le=1.0)
-    per_strategy_stop_loss_pct: float = Field(..., gt=0, le=1.0)
-    paper_trading_duration_hours: int = Field(default=72, ge=1)
-    min_sortino_threshold: float = Field(default=1.5)
-    max_max_drawdown_pct: float = Field(default=0.15, gt=0, le=1.0)
+    per_strategy_drawdown_halt: float = Field(default=15.0, ge=0, le=100)
+    portfolio_circuit_breaker: float = Field(default=25.0, ge=0, le=100)
+    max_concurrent_live: int = Field(default=10, ge=1)
+    paper_trading_days: int = Field(default=7, ge=1)
+    max_drawdown_cap: float = Field(default=30.0, ge=0, le=100)
+    pbo_fail_threshold: float = Field(default=0.40, ge=0, le=100)
+    fill_failure_rate: float = Field(default=30.0, ge=0, le=100)
+
+
+class RiskConfigOverrideCreate(BaseSchema):
+    experiment_id: uuid.UUID
+    per_strategy_drawdown_halt: float | None = Field(default=None, ge=0, le=100)
+    portfolio_circuit_breaker: float | None = Field(default=None, ge=0, le=100)
+    max_concurrent_live: int | None = Field(default=None, ge=1)
+    paper_trading_days: int | None = Field(default=None, ge=1)
+    max_drawdown_cap: float | None = Field(default=None, ge=0, le=100)
+    pbo_fail_threshold: float | None = Field(default=None, ge=0, le=100)
+    fill_failure_rate: float | None = Field(default=None, ge=0, le=100)
 
 
 class RiskConfigUpdate(BaseSchema):
-    label: str | None = Field(default=None, max_length=64)
-    is_active: bool | None = None
-    max_position_size_usd: float | None = Field(default=None, gt=0)
-    max_drawdown_pct: float | None = Field(default=None, gt=0, le=1.0)
-    max_daily_loss_usd: float | None = Field(default=None, gt=0)
+    per_strategy_drawdown_halt: float | None = Field(default=None, ge=0, le=100)
+    portfolio_circuit_breaker: float | None = Field(default=None, ge=0, le=100)
     max_concurrent_live: int | None = Field(default=None, ge=1)
-    portfolio_stop_loss_pct: float | None = Field(default=None, gt=0, le=1.0)
-    per_strategy_stop_loss_pct: float | None = Field(default=None, gt=0, le=1.0)
-    paper_trading_duration_hours: int | None = Field(default=None, ge=1)
-    min_sortino_threshold: float | None = None
-    max_max_drawdown_pct: float | None = Field(default=None, gt=0, le=1.0)
+    paper_trading_days: int | None = Field(default=None, ge=1)
+    max_drawdown_cap: float | None = Field(default=None, ge=0, le=100)
+    pbo_fail_threshold: float | None = Field(default=None, ge=0, le=100)
+    fill_failure_rate: float | None = Field(default=None, ge=0, le=100)
 
 
 class RiskConfigResponse(BaseResponseSchema):
-    label: str
-    is_active: bool
-    max_position_size_usd: float
-    max_drawdown_pct: float
-    max_daily_loss_usd: float
+    experiment_id: uuid.UUID | None
+    per_strategy_drawdown_halt: float | None
+    portfolio_circuit_breaker: float | None
+    max_concurrent_live: int | None
+    paper_trading_days: int | None
+    max_drawdown_cap: float | None
+    pbo_fail_threshold: float | None
+    fill_failure_rate: float | None
+
+
+class RiskConfigResolved(BaseSchema):
+    experiment_id: uuid.UUID | None
+    per_strategy_drawdown_halt: float
+    portfolio_circuit_breaker: float
     max_concurrent_live: int
-    portfolio_stop_loss_pct: float
-    per_strategy_stop_loss_pct: float
-    paper_trading_duration_hours: int
-    min_sortino_threshold: float
-    max_max_drawdown_pct: float
+    paper_trading_days: int
+    max_drawdown_cap: float
+    pbo_fail_threshold: float
+    fill_failure_rate: float

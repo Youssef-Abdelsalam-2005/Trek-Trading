@@ -137,23 +137,13 @@ class TestLLMConfigSchemas:
 class TestRiskConfigSchema:
     def test_validation_constraints(self):
         with pytest.raises(ValidationError):
-            RiskConfigCreate(
-                max_position_size_usd=-100,
-                max_drawdown_pct=0.1,
-                max_daily_loss_usd=500,
-                portfolio_stop_loss_pct=0.05,
-                per_strategy_stop_loss_pct=0.03,
-            )
+            RiskConfigCreate(per_strategy_drawdown_halt=101)
 
     def test_valid_config(self):
-        config = RiskConfigCreate(
-            max_position_size_usd=1000,
-            max_drawdown_pct=0.1,
-            max_daily_loss_usd=500,
-            portfolio_stop_loss_pct=0.05,
-            per_strategy_stop_loss_pct=0.03,
-        )
-        assert config.max_concurrent_live == 3
+        config = RiskConfigCreate()
+        assert config.max_concurrent_live == 10
+        assert config.per_strategy_drawdown_halt == 15.0
+        assert config.paper_trading_days == 7
 
 
 class TestTradeSchema:
