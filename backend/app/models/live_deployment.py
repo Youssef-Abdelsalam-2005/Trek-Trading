@@ -26,6 +26,7 @@ class LiveDeployment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     stop_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     total_pnl_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     total_pnl_sol: Mapped[float | None] = mapped_column(Float, nullable=True)
+    peak_equity_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     max_drawdown: Mapped[float | None] = mapped_column(Float, nullable=True)
     trade_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     metrics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
