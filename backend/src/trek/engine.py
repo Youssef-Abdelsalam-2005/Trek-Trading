@@ -256,7 +256,7 @@ class ExecutionEngine:
                     self._max_concurrent_live,
                     dep_id,
                 )
-                break
+                continue
 
             sl = StrategyLoop(
                 deployment_id=dep_id,
