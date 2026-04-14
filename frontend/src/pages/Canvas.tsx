@@ -1,5 +1,6 @@
 import { useParams } from "react-router-dom";
 import { useCallback, useState } from "react";
+import KillSwitch from "../components/KillSwitch";
 import {
   ReactFlow,
   Background,
@@ -98,9 +99,12 @@ export default function Canvas() {
     <main className="canvas-page">
       <header className="canvas-header">
         <h1>Experiment: {id}</h1>
-        <span className={`sse-status ${connected ? "sse-status--connected" : "sse-status--disconnected"}`}>
-          {connected ? "Live" : "Reconnecting..."}
-        </span>
+        <div className="canvas-header__actions">
+          <span className={`sse-status ${connected ? "sse-status--connected" : "sse-status--disconnected"}`}>
+            {connected ? "Live" : "Reconnecting..."}
+          </span>
+          <KillSwitch />
+        </div>
       </header>
       <div className="canvas-container">
         <ReactFlow

@@ -236,3 +236,167 @@ a:hover {
   border-radius: 3px;
   font-size: 12px;
 }
+
+/* Dashboard header */
+.dashboard__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dashboard__header h1 {
+  margin: 0;
+}
+
+/* Canvas header actions */
+.canvas-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Kill switch button */
+.kill-btn {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 8px 20px;
+  border: 2px solid var(--danger);
+  border-radius: 6px;
+  background: var(--danger);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
+  flex-shrink: 0;
+}
+
+.kill-btn:hover {
+  background: #dc2626;
+  border-color: #dc2626;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.3);
+}
+
+.kill-btn:focus-visible {
+  outline: 2px solid var(--danger);
+  outline-offset: 2px;
+}
+
+.kill-btn:active {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+
+/* Kill dialog */
+.kill-dialog {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  max-width: 440px;
+  width: calc(100% - 32px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.kill-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.kill-dialog__content {
+  padding: 24px;
+}
+
+.kill-dialog__title {
+  font-size: 18px;
+  color: var(--danger);
+  margin: 0 0 12px;
+}
+
+.kill-dialog__body {
+  margin: 0 0 20px;
+  line-height: 1.6;
+}
+
+.kill-dialog__body strong {
+  color: var(--text-h);
+}
+
+.kill-dialog__body--pending {
+  color: var(--warning);
+}
+
+.kill-dialog__body--success {
+  color: var(--success);
+}
+
+.kill-dialog__body--success p {
+  margin: 0 0 4px;
+}
+
+.kill-dialog__body--error {
+  color: var(--danger);
+}
+
+.kill-dialog__body--error p {
+  margin: 0 0 4px;
+}
+
+.kill-dialog__error-detail {
+  font-family: var(--mono);
+  font-size: 13px;
+  background: var(--bg-alt);
+  padding: 8px 12px;
+  border-radius: 4px;
+  word-break: break-word;
+}
+
+.kill-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.kill-dialog__cancel {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.kill-dialog__cancel:hover:not(:disabled) {
+  background: var(--bg-alt);
+}
+
+.kill-dialog__cancel:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.kill-dialog__confirm {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 8px 20px;
+  border: none;
+  border-radius: 6px;
+  background: var(--danger);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.kill-dialog__confirm:hover {
+  background: #dc2626;
+}
+
+.kill-dialog__confirm:focus-visible {
+  outline: 2px solid var(--danger);
+  outline-offset: 2px;
+}

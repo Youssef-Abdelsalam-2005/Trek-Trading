@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import KillSwitch from "../components/KillSwitch";
 
 const PLACEHOLDER_EXPERIMENTS = [
   { id: "exp-1", name: "SOL Mean Reversion", status: "backtesting" },
@@ -9,7 +10,10 @@ const PLACEHOLDER_EXPERIMENTS = [
 export default function Dashboard() {
   return (
     <main className="dashboard">
-      <h1>Dashboard</h1>
+      <div className="dashboard__header">
+        <h1>Dashboard</h1>
+        <KillSwitch />
+      </div>
       <section>
         <h2>Experiments</h2>
         {PLACEHOLDER_EXPERIMENTS.length === 0 ? (
