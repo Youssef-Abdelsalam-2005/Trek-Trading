@@ -51,7 +51,7 @@ SET status = 'pending',
     started_at = NULL,
     scheduled_at = now() + make_interval(secs => $3),
     updated_at = now()
-WHERE id = $1;
+WHERE id = $1 AND status = 'running';
 """
 
 FAIL_PERMANENT_SQL = """
@@ -61,7 +61,7 @@ SET status = 'failed',
     error_message = $2,
     completed_at = now(),
     updated_at = now()
-WHERE id = $1;
+WHERE id = $1 AND status = 'running';
 """
 
 STATUS_SQL = """
@@ -124,31 +124,33 @@ class TaskQueueService:
 
     async def fail(self, task_id: uuid.UUID, error: str) -> None:
         async with self._pool.acquire() as conn:
-            info = await conn.fetchrow(
-                "SELECT retry_count, max_retries, task_type FROM task_queue WHERE id = $1",
-                task_id,
-            )
-            if info is None:
-                raise ValueError(f"Task {task_id} not found")
+            async with conn.transaction():
+                info = await conn.fetchrow(
+                    "SELECT retry_count, max_retries, task_type FROM task_queue "
+                    "WHERE id = $1 FOR UPDATE",
+                    task_id,
+                )
+                if info is None:
+                    raise ValueError(f"Task {task_id} not found")
 
-            next_retry = info["retry_count"] + 1
+                next_retry = info["retry_count"] + 1
 
-            if next_retry < info["max_retries"]:
-                backoff = self._base_backoff * (2 ** (next_retry - 1))
-                await conn.execute(RETRY_SQL, task_id, error, backoff)
-                await conn.execute(
-                    f"SELECT pg_notify('{NOTIFY_CHANNEL}', $1)", info["task_type"],
-                )
-                log.info(
-                    "task %s failed (retry %d/%d, backoff %.1fs): %s",
-                    task_id, next_retry, info["max_retries"], backoff, error,
-                )
-            else:
-                await conn.execute(FAIL_PERMANENT_SQL, task_id, error)
-                log.info(
-                    "task %s permanently failed after %d retries: %s",
-                    task_id, next_retry, error,
-                )
+                if next_retry < info["max_retries"]:
+                    backoff = self._base_backoff * (2 ** (next_retry - 1))
+                    await conn.execute(RETRY_SQL, task_id, error, backoff)
+                    await conn.execute(
+                        f"SELECT pg_notify('{NOTIFY_CHANNEL}', $1)", info["task_type"],
+                    )
+                    log.info(
+                        "task %s failed (retry %d/%d, backoff %.1fs): %s",
+                        task_id, next_retry, info["max_retries"], backoff, error,
+                    )
+                else:
+                    await conn.execute(FAIL_PERMANENT_SQL, task_id, error)
+                    log.info(
+                        "task %s permanently failed after %d retries: %s",
+                        task_id, next_retry, error,
+                    )
 
     async def get_status(self, task_id: uuid.UUID) -> dict[str, Any] | None:
         async with self._pool.acquire() as conn:
