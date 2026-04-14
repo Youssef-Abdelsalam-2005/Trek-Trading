@@ -1,0 +1,85 @@
+.node {
+  background: #1a1a2e;
+  border: 2px solid #444;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  min-width: 140px;
+  cursor: pointer;
+  position: relative;
+  transition: box-shadow 0.15s;
+}
+
+.node:hover {
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.1);
+}
+
+.handle {
+  width: 8px;
+  height: 8px;
+  background: #555;
+  border: none;
+}
+
+.statusBadge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #0a0a0a;
+  padding: 1px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.25rem;
+}
+
+.name {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #e0e0e0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: #888;
+  margin-top: 0.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #2a2a3e;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  z-index: 50;
+  min-width: 160px;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.tooltipRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.75rem;
+  color: #ccc;
+  padding: 2px 0;
+}
+
+.tooltipRow span:first-child {
+  color: #999;
+}
+
+.tooltipRow span:last-child {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
