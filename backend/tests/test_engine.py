@@ -23,19 +23,17 @@ TEST_DSN = os.environ.get(
 SETUP_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS risk_config (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    label VARCHAR(64) NOT NULL DEFAULT 'global',
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    max_position_size_usd FLOAT NOT NULL DEFAULT 1000,
-    max_drawdown_pct FLOAT NOT NULL DEFAULT 0.25,
-    max_daily_loss_usd FLOAT NOT NULL DEFAULT 500,
-    max_concurrent_live INTEGER NOT NULL DEFAULT 3,
-    portfolio_stop_loss_pct FLOAT NOT NULL DEFAULT 0.25,
-    per_strategy_stop_loss_pct FLOAT NOT NULL DEFAULT 0.15,
-    paper_trading_duration_hours INTEGER NOT NULL DEFAULT 72,
-    min_sortino_threshold FLOAT NOT NULL DEFAULT 1.5,
-    max_max_drawdown_pct FLOAT NOT NULL DEFAULT 0.15,
+    experiment_id UUID,
+    per_strategy_drawdown_halt FLOAT,
+    portfolio_circuit_breaker FLOAT,
+    max_concurrent_live INTEGER,
+    paper_trading_days INTEGER,
+    max_drawdown_cap FLOAT,
+    pbo_fail_threshold FLOAT,
+    fill_failure_rate FLOAT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (experiment_id)
 );
 
 CREATE TABLE IF NOT EXISTS experiment (
@@ -146,9 +144,8 @@ async def seed_data(pool):
             dep_id, var_id,
         )
         await conn.execute(
-            """INSERT INTO risk_config (per_strategy_stop_loss_pct, max_position_size_usd,
-               max_drawdown_pct, max_daily_loss_usd, portfolio_stop_loss_pct)
-               VALUES (0.15, 1000, 0.25, 500, 0.25)"""
+            """INSERT INTO risk_config (experiment_id, per_strategy_drawdown_halt, max_concurrent_live)
+               VALUES (NULL, 15.0, 10)"""
         )
 
     return {"experiment_id": exp_id, "variation_id": var_id, "deployment_id": dep_id}
@@ -427,3 +424,77 @@ async def test_restart_idempotency(pool, seed_data):
 
     engine._stop.set()
     await engine.stop()
+
+
+@pytest.mark.asyncio
+async def test_max_concurrent_live_enforcement(pool):
+    """Engine refuses to start loops beyond max_concurrent_live."""
+    from trek.engine import ExecutionEngine
+
+    exp_id = uuid.uuid4()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO experiment (id, name) VALUES ($1, $2)", exp_id, "test-exp"
+        )
+        await conn.execute(
+            """INSERT INTO risk_config (experiment_id, per_strategy_drawdown_halt, max_concurrent_live)
+               VALUES (NULL, 15.0, 2)"""
+        )
+
+        for i in range(3):
+            var_id = uuid.uuid4()
+            dep_id = uuid.uuid4()
+            await conn.execute(
+                """INSERT INTO strategy_variation (id, experiment_id, status, code)
+                   VALUES ($1, $2, 'live', 'stub')""",
+                var_id, exp_id,
+            )
+            await conn.execute(
+                """INSERT INTO live_deployment (id, variation_id, started_at, decision_interval_seconds)
+                   VALUES ($1, $2, now(), 300)""",
+                dep_id, var_id,
+            )
+
+    engine = ExecutionEngine(pool, TEST_DSN)
+    await engine._load_risk_config()
+
+    assert engine._max_concurrent_live == 2
+
+    await engine._load_and_start_deployments()
+
+    assert len(engine._loops) == 2
+
+    engine._stop.set()
+    await engine.stop()
+
+
+@pytest.mark.asyncio
+async def test_max_concurrent_live_under_limit(pool, seed_data):
+    """Engine starts all loops when under the limit."""
+    from trek.engine import ExecutionEngine
+
+    engine = ExecutionEngine(pool, TEST_DSN)
+    await engine._load_risk_config()
+
+    assert engine._max_concurrent_live == 10
+
+    await engine._load_and_start_deployments()
+    assert len(engine._loops) == 1
+
+    engine._stop.set()
+    await engine.stop()
+
+
+@pytest.mark.asyncio
+async def test_load_risk_config_defaults_without_row(pool):
+    """Engine uses defaults when no global risk config row exists."""
+    from trek.engine import ExecutionEngine
+
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM risk_config")
+
+    engine = ExecutionEngine(pool, TEST_DSN)
+    await engine._load_risk_config()
+
+    assert engine._max_concurrent_live == 10
+    assert engine._drawdown_threshold == 0.15

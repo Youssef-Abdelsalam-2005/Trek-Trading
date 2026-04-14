@@ -4,14 +4,13 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.models.enums import StrategyStatus
 from backend.app.models.live_deployment import LiveDeployment
 from backend.app.models.risk_config import RiskConfig
 from backend.app.models.strategy_variation import StrategyVariation
-from backend.app.models.wallet_state import WalletState
 from backend.app.schemas.strategy_variation import StrategyVariationResponse
 from trek.database import get_session
 from trek.sse import broadcast
@@ -43,16 +42,16 @@ async def promote_to_live(
         risk_config = (
             await session.execute(
                 select(RiskConfig).where(
-                    RiskConfig.label == "global",
-                    RiskConfig.is_active.is_(True),
+                    RiskConfig.experiment_id.is_(None),
                 )
             )
         ).scalar_one_or_none()
-        if risk_config is None:
-            raise HTTPException(
-                status_code=422,
-                detail="No active global risk configuration found. Configure risk settings before promoting.",
-            )
+
+        max_concurrent = (
+            risk_config.max_concurrent_live
+            if risk_config and risk_config.max_concurrent_live is not None
+            else RiskConfig.GLOBAL_DEFAULTS["max_concurrent_live"]
+        )
 
         live_count_result = await session.execute(
             select(func.count()).select_from(StrategyVariation).where(
@@ -60,32 +59,11 @@ async def promote_to_live(
             )
         )
         live_count = live_count_result.scalar_one()
-        if live_count >= risk_config.max_concurrent_live:
+        if live_count >= max_concurrent:
             raise HTTPException(
                 status_code=422,
-                detail=f"Max concurrent live strategies reached ({risk_config.max_concurrent_live}). "
+                detail=f"Max concurrent live strategies reached ({max_concurrent}). "
                 f"Halt or kill an existing live strategy before promoting.",
-            )
-
-        wallet = (
-            await session.execute(
-                select(WalletState).order_by(WalletState.snapshot_at.desc()).limit(1)
-            )
-        ).scalar_one_or_none()
-        if wallet is None:
-            raise HTTPException(
-                status_code=422,
-                detail="No wallet state available. Ensure wallet balance is synced before promoting.",
-            )
-
-        required_balance_usd = risk_config.max_position_size_usd
-        available_balance_usd = wallet.sol_balance + wallet.usdc_balance
-        if available_balance_usd < required_balance_usd:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Insufficient wallet balance. "
-                f"Available: ${available_balance_usd:.2f}, "
-                f"required (max_position_size_usd): ${required_balance_usd:.2f}",
             )
 
         variation.transition_to(StrategyStatus.LIVE)

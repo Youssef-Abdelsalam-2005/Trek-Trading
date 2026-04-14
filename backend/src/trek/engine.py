@@ -96,10 +96,11 @@ WHERE sv.status = 'live'
 """
 
 LOAD_RISK_CONFIG_SQL = """
-SELECT per_strategy_stop_loss_pct
+SELECT
+    COALESCE(per_strategy_drawdown_halt, 15.0) AS per_strategy_drawdown_halt,
+    COALESCE(max_concurrent_live, 10) AS max_concurrent_live
 FROM risk_config
-WHERE is_active = true
-ORDER BY created_at DESC
+WHERE experiment_id IS NULL
 LIMIT 1;
 """
 
@@ -190,7 +191,8 @@ class ExecutionEngine:
         self._dsn = dsn
         self._stop = asyncio.Event()
         self._loops: dict[uuid.UUID, StrategyLoop] = {}  # keyed by deployment_id
-        self._drawdown_threshold: float = 0.15  # default, loaded from risk_config
+        self._drawdown_threshold: float = 0.15
+        self._max_concurrent_live: int = 10
 
     async def start(self) -> None:
         async with self._pool.acquire() as conn:
@@ -224,15 +226,18 @@ class ExecutionEngine:
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(LOAD_RISK_CONFIG_SQL)
             if row:
-                self._drawdown_threshold = row["per_strategy_stop_loss_pct"]
+                self._drawdown_threshold = row["per_strategy_drawdown_halt"] / 100.0
+                self._max_concurrent_live = row["max_concurrent_live"]
                 log.info(
-                    "Risk config loaded: drawdown threshold=%.2f%%",
+                    "Risk config loaded: drawdown threshold=%.2f%%, max concurrent live=%d",
                     self._drawdown_threshold * 100,
+                    self._max_concurrent_live,
                 )
             else:
                 log.warning(
-                    "No active risk config found — using default drawdown threshold %.2f%%",
+                    "No global risk config found — using defaults: drawdown=%.2f%%, max concurrent=%d",
                     self._drawdown_threshold * 100,
+                    self._max_concurrent_live,
                 )
 
     async def _load_and_start_deployments(self) -> None:
@@ -244,6 +249,15 @@ class ExecutionEngine:
             dep_id = row["deployment_id"]
             if dep_id in self._loops:
                 continue
+
+            if len(self._loops) >= self._max_concurrent_live:
+                log.warning(
+                    "Max concurrent live strategies reached (%d) — refusing deployment=%s",
+                    self._max_concurrent_live,
+                    dep_id,
+                )
+                break
+
             sl = StrategyLoop(
                 deployment_id=dep_id,
                 variation_id=row["variation_id"],
