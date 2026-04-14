@@ -172,7 +172,7 @@ class JitoBundleClient:
                 status=status.status,
             )
 
-        except (httpx.HTTPError, httpx.TimeoutException, JitoBundleError) as exc:
+        except (httpx.HTTPError, JitoBundleError) as exc:
             log.warning(
                 "jito submission failed (%s), falling back to direct RPC",
                 exc,
@@ -200,9 +200,10 @@ class JitoBundleClient:
         data = resp.json()
 
         if "error" in data:
+            err = data["error"]
+            code = err.get("code") if isinstance(err, dict) else None
             raise JitoBundleError(
-                f"RPC sendTransaction failed: {data['error']}",
-                code=data["error"].get("code"),
+                f"RPC sendTransaction failed: {err}", code=code,
             )
 
         signature = data["result"]
@@ -233,6 +234,10 @@ class JitoBundleClient:
                 resp = await self._client.post(url, json=payload)
 
                 if resp.status_code == 429:
+                    last_exc = JitoBundleError(
+                        f"Jito rate limited after {attempt + 1} attempts",
+                        code=429,
+                    )
                     delay = self._base_backoff * (2**attempt)
                     log.warning(
                         "jito rate limited, retrying in %.1fs (attempt %d/%d)",
@@ -260,9 +265,10 @@ class JitoBundleClient:
                 data = resp.json()
 
                 if "error" in data:
+                    err = data["error"]
+                    code = err.get("code") if isinstance(err, dict) else None
                     raise JitoBundleError(
-                        f"Jito RPC error: {data['error']}",
-                        code=data["error"].get("code"),
+                        f"Jito RPC error: {err}", code=code,
                     )
 
                 return data
@@ -277,8 +283,6 @@ class JitoBundleClient:
                 await asyncio.sleep(delay)
 
             except httpx.HTTPError as exc:
-                if isinstance(exc, httpx.HTTPStatusError):
-                    raise
                 delay = self._base_backoff * (2**attempt)
                 log.warning(
                     "jito http error: %s, retrying in %.1fs (attempt %d/%d)",

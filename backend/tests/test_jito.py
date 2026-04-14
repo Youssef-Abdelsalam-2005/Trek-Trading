@@ -219,6 +219,30 @@ class TestRetry:
             result = await client.send_bundle(["tx1"])
             assert result.bundle_id == FAKE_BUNDLE_ID
 
+    async def test_429_exhaustion_raises_jito_error(self):
+        client = JitoBundleClient(max_retries=1, base_backoff_seconds=0.01)
+        rate_limited = httpx.Response(429)
+
+        with patch.object(
+            client._client, "post", new_callable=AsyncMock, return_value=rate_limited
+        ):
+            with pytest.raises(JitoBundleError, match="rate limited"):
+                await client.send_bundle(["tx1"])
+
+    async def test_429_exhaustion_triggers_fallback(self):
+        client = JitoBundleClient(max_retries=0, base_backoff_seconds=0.01)
+        rate_limited = httpx.Response(429)
+        rpc_resp = _rpc_ok(FAKE_TX_SIGNATURE)
+
+        with patch.object(
+            client._client, "post", new_callable=AsyncMock, side_effect=[rate_limited, rpc_resp]
+        ):
+            result = await client.submit_with_fallback(
+                ["tx1_base58"], swap_tx_base64="base64swap"
+            )
+            assert result.path == SubmissionPath.DIRECT_RPC
+            assert result.tx_signature == FAKE_TX_SIGNATURE
+
 
 class TestTipAccounts:
     def test_eight_tip_accounts(self):
@@ -239,7 +263,6 @@ class TestConfiguration:
         client = JitoBundleClient(tip_lamports=10_000_000)
         assert client.tip_lamports == 10_000_000
 
-    def test_context_manager(self):
-        async def _test():
-            async with JitoBundleClient() as c:
-                assert c.tip_lamports == 5_000_000
+    async def test_context_manager(self):
+        async with JitoBundleClient() as c:
+            assert c.tip_lamports == 5_000_000
