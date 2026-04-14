@@ -11,9 +11,11 @@ import {
   type Node,
   type Edge,
   type OnConnect,
+  type NodeMouseHandler,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useSSE, type SSEEvent } from "../hooks/useSSE";
+import PaperResults from "../components/PaperResults";
 
 const INITIAL_NODES: Node[] = [
   {
@@ -67,6 +69,8 @@ export default function Canvas() {
   const [nodes, setNodes, onNodesChange] = useNodesState(INITIAL_NODES);
   const [edges, setEdges, onEdgesChange] = useEdgesState(INITIAL_EDGES);
   const [lastEvent, setLastEvent] = useState<SSEEvent | null>(null);
+  const [paperPanelOpen, setPaperPanelOpen] = useState(false);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const onConnect: OnConnect = useCallback(
     (params) => setEdges((eds) => addEdge(params, eds)),
@@ -94,6 +98,18 @@ export default function Canvas() {
     onEvent: handleSSEEvent,
   });
 
+  const onNodeClick: NodeMouseHandler = useCallback((_event, node) => {
+    if (node.id === "paper-trade") {
+      if (selectedNodeId === node.id && paperPanelOpen) {
+        setPaperPanelOpen(false);
+        setSelectedNodeId(null);
+      } else {
+        setSelectedNodeId(node.id);
+        setPaperPanelOpen(true);
+      }
+    }
+  }, [selectedNodeId, paperPanelOpen]);
+
   return (
     <main className="canvas-page">
       <header className="canvas-header">
@@ -102,19 +118,40 @@ export default function Canvas() {
           {connected ? "Live" : "Reconnecting..."}
         </span>
       </header>
-      <div className="canvas-container">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          fitView
-        >
-          <Background />
-          <Controls />
-          <MiniMap />
-        </ReactFlow>
+      <div className="canvas-body">
+        <div className={`canvas-container ${paperPanelOpen ? "canvas-container--with-panel" : ""}`}>
+          <ReactFlow
+            nodes={nodes.map((n) => ({
+              ...n,
+              className: n.id === selectedNodeId ? "selected-node" : undefined,
+            }))}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onNodeClick={onNodeClick}
+            fitView
+          >
+            <Background />
+            <Controls />
+            <MiniMap />
+          </ReactFlow>
+        </div>
+        {paperPanelOpen && (
+          <aside className="paper-panel" role="complementary" aria-label="Paper trading results">
+            <header className="paper-panel__header">
+              <button
+                type="button"
+                className="paper-panel__close"
+                onClick={() => { setPaperPanelOpen(false); setSelectedNodeId(null); }}
+                aria-label="Close panel"
+              >
+                &times;
+              </button>
+            </header>
+            <PaperResults variationId={id} />
+          </aside>
+        )}
       </div>
       {lastEvent && (
         <footer className="canvas-footer">
