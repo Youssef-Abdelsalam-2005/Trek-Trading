@@ -35,3 +35,4 @@ class ExperimentResponse(BaseResponseSchema):
     risk_config_override: dict | None
     llm_config_override: dict | None
     deleted_at: datetime | None
+    effective_risk_config: dict | None = None

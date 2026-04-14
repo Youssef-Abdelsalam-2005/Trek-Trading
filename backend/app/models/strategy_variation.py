@@ -46,6 +46,9 @@ class StrategyVariation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     experiment: Mapped["Experiment"] = relationship(
         "Experiment", back_populates="variations"
