@@ -494,12 +494,12 @@ a:hover {
   border-radius: 3px;
 }
 
-.trade-side--long {
+.trade-side--buy {
   background: rgba(34, 197, 94, 0.12);
   color: var(--success);
 }
 
-.trade-side--short {
+.trade-side--sell {
   background: rgba(239, 68, 68, 0.12);
   color: var(--danger);
 }

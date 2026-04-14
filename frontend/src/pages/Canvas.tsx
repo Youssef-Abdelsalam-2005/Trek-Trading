@@ -16,8 +16,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useSSE, type SSEEvent } from "../hooks/useSSE";
 import { BacktestPanel } from "../components/BacktestPanel";
-import type { BacktestResult } from "../types/backtest";
-import { MOCK_BACKTEST_RESULTS } from "../mocks/backtestData";
+import { type BacktestResult, transformApiResponse } from "../types/backtest";
 
 const INITIAL_NODES: Node[] = [
   {
@@ -122,17 +121,22 @@ export default function Canvas() {
     setBacktestError(null);
     setBacktestResult(null);
 
-    // TODO: Replace with real API call to GET /api/strategies/{id}/backtest
-    const mockResult = MOCK_BACKTEST_RESULTS[node.id];
-    setTimeout(() => {
-      if (mockResult) {
-        setBacktestResult(mockResult);
+    fetch(`/api/backtests/${encodeURIComponent(node.id)}`)
+      .then((res) => {
+        if (!res.ok) {
+          if (res.status === 404) throw new Error("No backtest results available for this node.");
+          throw new Error(`Failed to fetch backtest results (${res.status})`);
+        }
+        return res.json();
+      })
+      .then((data) => {
+        setBacktestResult(transformApiResponse(data));
         setBacktestLoading(false);
-      } else {
+      })
+      .catch((err) => {
         setBacktestLoading(false);
-        setBacktestError("No backtest results available for this node.");
-      }
-    }, 600);
+        setBacktestError(err instanceof Error ? err.message : "Unknown error");
+      });
   }, [selectedNodeId, panelOpen]);
 
   const handleClosePanel = useCallback(() => {

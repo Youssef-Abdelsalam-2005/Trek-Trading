@@ -80,6 +80,7 @@ export function MetricsSummary({ metrics }: MetricsSummaryProps) {
       <dl className="metrics-grid">
         {METRIC_DEFS.map((def) => {
           const value = metrics[def.key];
+          if (value === null || value === undefined) return null;
           return (
             <div key={def.key} className={`metric-card ${colorClass(def, value)}`}>
               <dt className="metric-card__label">{def.label}</dt>

@@ -40,7 +40,7 @@ export function EquityCurveChart({ data }: EquityCurveChartProps) {
           </defs>
           <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
           <XAxis
-            dataKey="timestamp"
+            dataKey="time"
             tickFormatter={formatDate}
             tick={{ fontSize: 11, fill: "var(--text)" }}
             axisLine={{ stroke: "var(--border)" }}
@@ -63,13 +63,13 @@ export function EquityCurveChart({ data }: EquityCurveChartProps) {
             }}
             labelFormatter={(label) => formatDate(String(label))}
             formatter={(value, name) => [
-              name === "equity" ? formatCurrency(Number(value)) : `${(Number(value) * 100).toFixed(1)}%`,
-              name === "equity" ? "Equity" : "Drawdown",
+              name === "value" ? formatCurrency(Number(value)) : `${(Number(value) * 100).toFixed(1)}%`,
+              name === "value" ? "Equity" : "Drawdown",
             ]}
           />
           <Area
             type="monotone"
-            dataKey="equity"
+            dataKey="value"
             stroke="var(--accent)"
             strokeWidth={2}
             fill="url(#equityGrad)"

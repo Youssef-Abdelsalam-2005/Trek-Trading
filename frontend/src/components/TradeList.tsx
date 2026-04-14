@@ -25,35 +25,31 @@ export function TradeList({ trades }: TradeListProps) {
         <table className="trade-table" role="table">
           <thead>
             <tr>
-              <th scope="col">Side</th>
-              <th scope="col">Entry</th>
-              <th scope="col">Exit</th>
-              <th scope="col" className="num">Entry Price</th>
-              <th scope="col" className="num">Exit Price</th>
-              <th scope="col" className="num">PnL</th>
-              <th scope="col" className="num">PnL %</th>
-              <th scope="col">Duration</th>
+              <th scope="col">Direction</th>
+              <th scope="col">Pair</th>
+              <th scope="col">Executed</th>
+              <th scope="col" className="num">Price</th>
+              <th scope="col" className="num">Qty</th>
+              <th scope="col" className="num">Value</th>
+              <th scope="col" className="num">Fee</th>
+              <th scope="col" className="num">Slippage</th>
             </tr>
           </thead>
           <tbody>
             {trades.map((trade) => (
               <tr key={trade.id}>
                 <td>
-                  <span className={`trade-side trade-side--${trade.side}`}>
-                    {trade.side}
+                  <span className={`trade-side trade-side--${trade.direction}`}>
+                    {trade.direction}
                   </span>
                 </td>
-                <td>{formatDateTime(trade.entryTime)}</td>
-                <td>{formatDateTime(trade.exitTime)}</td>
-                <td className="num">${trade.entryPrice.toFixed(2)}</td>
-                <td className="num">${trade.exitPrice.toFixed(2)}</td>
-                <td className={`num ${trade.pnl >= 0 ? "pnl--positive" : "pnl--negative"}`}>
-                  ${trade.pnl.toFixed(2)}
-                </td>
-                <td className={`num ${trade.pnlPercent >= 0 ? "pnl--positive" : "pnl--negative"}`}>
-                  {(trade.pnlPercent * 100).toFixed(2)}%
-                </td>
-                <td>{trade.duration}</td>
+                <td>{trade.pair}</td>
+                <td>{formatDateTime(trade.executedAt)}</td>
+                <td className="num">${trade.price.toFixed(2)}</td>
+                <td className="num">{trade.quantity.toFixed(4)}</td>
+                <td className="num">${trade.valueUsd.toFixed(2)}</td>
+                <td className="num">{trade.feeUsd != null ? `$${trade.feeUsd.toFixed(2)}` : "—"}</td>
+                <td className="num">{trade.slippageBps != null ? `${trade.slippageBps.toFixed(1)} bps` : "—"}</td>
               </tr>
             ))}
           </tbody>

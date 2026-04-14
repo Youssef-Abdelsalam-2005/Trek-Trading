@@ -19,7 +19,7 @@ export function BacktestPanel({ result, loading, error, onClose }: BacktestPanel
   return (
     <aside className="backtest-panel" role="complementary" aria-label="Backtest results">
       <header className="backtest-panel__header">
-        <h2>{result?.strategyName ?? "Backtest Results"}</h2>
+        <h2>Backtest Results</h2>
         <button
           className="backtest-panel__close"
           onClick={onClose}
@@ -72,7 +72,7 @@ export function BacktestPanel({ result, loading, error, onClose }: BacktestPanel
           </div>
 
           <footer className="backtest-panel__footer">
-            {result.startDate} &mdash; {result.endDate}
+            {new Date(result.startDate).toLocaleDateString()} &mdash; {new Date(result.endDate).toLocaleDateString()}
           </footer>
         </>
       )}
