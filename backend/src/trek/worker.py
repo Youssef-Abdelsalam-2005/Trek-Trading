@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import signal
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 import asyncpg
+import httpx
+
+from trek.config import database_url
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,7 +50,7 @@ SET status = CASE WHEN retry_count < max_retries THEN 'pending' ELSE 'failed' EN
 WHERE id = $1;
 """
 
-TaskHandler = Callable[[dict[str, Any]], Awaitable[None]]
+TaskHandler = Callable[[asyncpg.Pool, dict[str, Any]], Awaitable[None]]
 
 _handlers: dict[str, TaskHandler] = {}
 
@@ -61,15 +63,29 @@ def register_handler(task_type: str) -> Callable[[TaskHandler], TaskHandler]:
 
 
 @register_handler("test")
-async def handle_test(payload: dict[str, Any]) -> None:
+async def handle_test(pool: asyncpg.Pool, payload: dict[str, Any]) -> None:
     log.info("Executing test task with payload: %s", payload)
 
 
-def _database_url() -> str:
-    url = os.environ.get("DATABASE_URL", "")
-    if url.startswith("postgresql+asyncpg://"):
-        url = url.replace("postgresql+asyncpg://", "postgresql://", 1)
-    return url
+@register_handler("ohlcv_backfill")
+async def handle_ohlcv_backfill(pool: asyncpg.Pool, payload: dict[str, Any]) -> None:
+    from trek.ohlcv_fetcher import backfill
+
+    days = payload.get("days", 90)
+    resolution = payload.get("resolution", "1h")
+    async with httpx.AsyncClient() as client:
+        total = await backfill(pool, client, resolution, days)
+        log.info("ohlcv_backfill: %d rows", total)
+
+
+@register_handler("ohlcv_update")
+async def handle_ohlcv_update(pool: asyncpg.Pool, payload: dict[str, Any]) -> None:
+    from trek.ohlcv_fetcher import fetch_latest
+
+    resolution = payload.get("resolution", "1h")
+    async with httpx.AsyncClient() as client:
+        count = await fetch_latest(pool, client, resolution)
+        log.info("ohlcv_update: %d new rows", count)
 
 
 async def _process_one(pool: asyncpg.Pool) -> bool:
@@ -98,7 +114,7 @@ async def _process_one(pool: asyncpg.Pool) -> bool:
                 return True
 
     try:
-        await handler(payload or {})
+        await handler(pool, payload or {})
     except Exception:
         log.exception("Task %s failed", task_id)
         async with pool.acquire() as conn:
@@ -124,7 +140,7 @@ async def main() -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop.set)
 
-    dsn = _database_url()
+    dsn = database_url()
     if not dsn:
         log.error("DATABASE_URL not set")
         return
