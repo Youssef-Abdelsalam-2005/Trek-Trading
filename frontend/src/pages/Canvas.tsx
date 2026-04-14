@@ -11,9 +11,12 @@ import {
   type Node,
   type Edge,
   type OnConnect,
+  type NodeMouseHandler,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useSSE, type SSEEvent } from "../hooks/useSSE";
+import { BacktestPanel } from "../components/BacktestPanel";
+import { type BacktestResult, transformApiResponse } from "../types/backtest";
 
 const INITIAL_NODES: Node[] = [
   {
@@ -67,6 +70,11 @@ export default function Canvas() {
   const [nodes, setNodes, onNodesChange] = useNodesState(INITIAL_NODES);
   const [edges, setEdges, onEdgesChange] = useEdgesState(INITIAL_EDGES);
   const [lastEvent, setLastEvent] = useState<SSEEvent | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
+  const [backtestLoading, setBacktestLoading] = useState(false);
+  const [backtestError, setBacktestError] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const onConnect: OnConnect = useCallback(
     (params) => setEdges((eds) => addEdge(params, eds)),
@@ -85,6 +93,12 @@ export default function Canvas() {
           );
         }
       }
+
+      if (event.type === "backtest_result" && typeof event.data === "object" && event.data !== null) {
+        setBacktestResult(event.data as BacktestResult);
+        setBacktestLoading(false);
+        setBacktestError(null);
+      }
     },
     [setNodes],
   );
@@ -94,6 +108,42 @@ export default function Canvas() {
     onEvent: handleSSEEvent,
   });
 
+  const onNodeClick: NodeMouseHandler = useCallback((_event, node) => {
+    if (selectedNodeId === node.id && panelOpen) {
+      setPanelOpen(false);
+      setSelectedNodeId(null);
+      return;
+    }
+
+    setSelectedNodeId(node.id);
+    setPanelOpen(true);
+    setBacktestLoading(true);
+    setBacktestError(null);
+    setBacktestResult(null);
+
+    fetch(`/api/backtests/${encodeURIComponent(node.id)}`)
+      .then((res) => {
+        if (!res.ok) {
+          if (res.status === 404) throw new Error("No backtest results available for this node.");
+          throw new Error(`Failed to fetch backtest results (${res.status})`);
+        }
+        return res.json();
+      })
+      .then((data) => {
+        setBacktestResult(transformApiResponse(data));
+        setBacktestLoading(false);
+      })
+      .catch((err) => {
+        setBacktestLoading(false);
+        setBacktestError(err instanceof Error ? err.message : "Unknown error");
+      });
+  }, [selectedNodeId, panelOpen]);
+
+  const handleClosePanel = useCallback(() => {
+    setPanelOpen(false);
+    setSelectedNodeId(null);
+  }, []);
+
   return (
     <main className="canvas-page">
       <header className="canvas-header">
@@ -102,19 +152,33 @@ export default function Canvas() {
           {connected ? "Live" : "Reconnecting..."}
         </span>
       </header>
-      <div className="canvas-container">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          fitView
-        >
-          <Background />
-          <Controls />
-          <MiniMap />
-        </ReactFlow>
+      <div className="canvas-body">
+        <div className={`canvas-container ${panelOpen ? "canvas-container--with-panel" : ""}`}>
+          <ReactFlow
+            nodes={nodes.map((n) => ({
+              ...n,
+              className: n.id === selectedNodeId ? "selected-node" : undefined,
+            }))}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onNodeClick={onNodeClick}
+            fitView
+          >
+            <Background />
+            <Controls />
+            <MiniMap />
+          </ReactFlow>
+        </div>
+        {panelOpen && (
+          <BacktestPanel
+            result={backtestResult}
+            loading={backtestLoading}
+            error={backtestError}
+            onClose={handleClosePanel}
+          />
+        )}
       </div>
       {lastEvent && (
         <footer className="canvas-footer">
