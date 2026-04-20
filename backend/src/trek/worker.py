@@ -65,6 +65,16 @@ async def handle_test(payload: dict[str, Any]) -> None:
     log.info("Executing test task with payload: %s", payload)
 
 
+@register_handler("skeptic_pipeline")
+async def handle_skeptic_pipeline(payload: dict[str, Any]) -> None:
+    from backend.src.trek.skeptic.orchestrator import run_pipeline
+
+    variation_id = payload.get("variation_id")
+    if not variation_id:
+        raise ValueError("skeptic_pipeline task requires 'variation_id' in payload")
+    await run_pipeline(variation_id)
+
+
 def _database_url() -> str:
     url = os.environ.get("DATABASE_URL", "")
     if url.startswith("postgresql+asyncpg://"):
