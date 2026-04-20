@@ -13,6 +13,7 @@ from backend.app.models.wallet_state import WalletState
 from backend.app.models.kill_switch_event import KillSwitchEvent
 from backend.app.models.task_queue import TaskQueue
 from backend.app.models.ohlcv_data import OHLCVData
+from backend.app.models.drawdown_event import DrawdownEvent
 
 __all__ = [
     "Base",
@@ -30,4 +31,5 @@ __all__ = [
     "KillSwitchEvent",
     "TaskQueue",
     "OHLCVData",
+    "DrawdownEvent",
 ]
