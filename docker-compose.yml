@@ -24,6 +24,8 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://trek:trek_dev@db:5432/trek
+      HOT_WALLET_ADDRESS: ${HOT_WALLET_ADDRESS:-}
+      SOLANA_RPC_URL: ${SOLANA_RPC_URL:-https://api.mainnet-beta.solana.com}
     depends_on:
       db:
         condition: service_healthy
@@ -46,6 +48,10 @@ services:
     command: ["python", "-m", "trek.engine"]
     environment:
       DATABASE_URL: postgresql+asyncpg://trek:trek_dev@db:5432/trek
+      HOT_WALLET_ADDRESS: ${HOT_WALLET_ADDRESS:-}
+      SOLANA_RPC_URL: ${SOLANA_RPC_URL:-https://api.mainnet-beta.solana.com}
+      BALANCE_CHECK_INTERVAL_SECONDS: ${BALANCE_CHECK_INTERVAL_SECONDS:-300}
+      LOW_BALANCE_THRESHOLD_USD: ${LOW_BALANCE_THRESHOLD_USD:-100}
     depends_on:
       db:
         condition: service_healthy
