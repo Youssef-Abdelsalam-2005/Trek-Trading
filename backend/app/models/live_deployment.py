@@ -29,6 +29,14 @@ class LiveDeployment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     max_drawdown: Mapped[float | None] = mapped_column(Float, nullable=True)
     trade_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     metrics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    last_signal_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    decision_interval_seconds: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="300"
+    )
+    peak_equity_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    peak_equity_sol: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     variation: Mapped["StrategyVariation"] = relationship(
         "StrategyVariation", back_populates="live_deployments"

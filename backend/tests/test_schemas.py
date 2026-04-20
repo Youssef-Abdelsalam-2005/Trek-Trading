@@ -163,22 +163,22 @@ class TestTradeSchema:
             variation_id=uuid.uuid4(),
             source=TradeSource.LIVE,
             direction=TradeDirection.BUY,
-            price=150.5,
-            quantity=1.0,
-            value_usd=150.5,
+            input_amount=1.0,
+            quoted_price=150.5,
+            fill_price=150.5,
             executed_at=now,
         )
         assert trade.pair == "SOL/USDC"
 
-    def test_price_must_be_positive(self):
+    def test_quoted_price_must_be_positive(self):
         with pytest.raises(ValidationError):
             TradeCreate(
                 variation_id=uuid.uuid4(),
                 source=TradeSource.LIVE,
                 direction=TradeDirection.BUY,
-                price=-1,
-                quantity=1.0,
-                value_usd=150.5,
+                input_amount=1.0,
+                quoted_price=-1,
+                fill_price=150.5,
                 executed_at=datetime.now(timezone.utc),
             )
 
