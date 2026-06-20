@@ -1,19 +1,19 @@
 [Unit]
-Description=Trek Trading Worker Process
+Description=Trek Trading API
 After=docker.service
 Wants=docker.service
 
 [Service]
 Type=simple
-User=trek-worker
-Group=trek-worker
+User=trek-api
+Group=trek-api
 WorkingDirectory=/opt/trek
-ExecStart=/opt/trek/.venv/bin/python -m trek.worker
+ExecStart=/opt/trek/.venv/bin/uvicorn trek.api:app --host 127.0.0.1 --port 8000 --workers 2
 Restart=on-failure
 RestartSec=5
 KillSignal=SIGTERM
 TimeoutStopSec=30
-EnvironmentFile=/etc/trek/worker.env
+EnvironmentFile=/etc/trek/api.env
 
 ProtectSystem=strict
 ProtectHome=true
@@ -26,6 +26,7 @@ ProtectControlGroups=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 RestrictNamespaces=true
 RestrictSUIDSGID=true
+MemoryDenyWriteExecute=true
 LockPersonality=true
 ReadWritePaths=/opt/trek/logs
 CapabilityBoundingSet=
