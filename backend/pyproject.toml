@@ -2,7 +2,7 @@
 name = "trek-trading"
 version = "0.1.0"
 description = "Trek Trading — LLM-powered quant platform"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115,<1",
     "uvicorn[standard]>=0.34,<1",
@@ -12,6 +12,8 @@ dependencies = [
     "pydantic>=2.0,<3",
     "pydantic-settings>=2.0,<3",
     "cryptography>=44,<45",
+    "httpx>=0.27,<1",
+    "solders>=0.21,<1",
 ]
 
 [project.optional-dependencies]
