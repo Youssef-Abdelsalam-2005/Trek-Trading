@@ -150,20 +150,14 @@ class TestModelRoundTrip:
         assert loaded.variation_id == var.id
 
     def test_risk_config_round_trip(self, session):
-        config = RiskConfig(
-            label="global",
-            max_position_size_usd=1000.0,
-            max_drawdown_pct=0.1,
-            max_daily_loss_usd=500.0,
-            portfolio_stop_loss_pct=0.05,
-            per_strategy_stop_loss_pct=0.03,
-        )
+        config = RiskConfig(**RiskConfig.GLOBAL_DEFAULTS)
         session.add(config)
         session.commit()
 
         loaded = session.get(RiskConfig, config.id)
-        assert loaded.max_position_size_usd == 1000.0
-        assert loaded.label == "global"
+        assert loaded.per_strategy_drawdown_halt == 15.0
+        assert loaded.max_concurrent_live == 10
+        assert loaded.experiment_id is None
 
     def test_task_queue_round_trip(self, session):
         task = TaskQueue(
